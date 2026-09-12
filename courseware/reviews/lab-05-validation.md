@@ -6,6 +6,8 @@
 - **Validation status:** **FAIL** (blocking defects 1–5 below; everything else is repairable text)
 - **Interestingness rating:** **STRONG** (with one caveat — see "Interestingness" at the end)
 
+> **Superseded — read the re-test first.** The status above is the **first** pass, against the 603-line guide. The guide and the environment have since been revised. The current verdict is **PASS WITH NOTES**, recorded in **[§ Re-test 2026-09-12](#re-test-2026-09-12)** at the end of this file. Sections 1–11 below are kept unchanged as the record of what was originally found.
+
 ---
 
 ## 1. Environment tested
@@ -490,3 +492,331 @@ The caveat: today two of the five attempts (E3-B, E4-A) are "confirmed" by messa
 3. Re-run E3/E4 with `syncPolicy` removed from the throwaways to confirm the retry/`already in progress` problem is gone.
 4. Recapture `lab-05-03/04/05` only if the exercises change shape; the current PNGs are accurate to the *current* environment, and the fix is in the guide text, not the images.
 5. One pass on a real provisioned VM for the `PATH` question and the SSH-tunnel UI path.
+
+---
+
+## Re-test 2026-09-12
+
+Targeted re-test of the **revised** guide (`courseware/day-2/lab-05-enforce-platform-guardrails.md`, 603 -> 841 lines) after all 14 required fixes and the environment repairs. Everything below is new; nothing above was deleted.
+
+- **Tested by:** `lab-tester`, 2026-09-12
+- **Environment:** the same local k3d two-cluster sandbox as the original run (Argo CD `v3.5.2`, chart `10.8.4`, k3s `v1.35.8`, Helm `v4.2.1`, `argocd` CLI `v3.5.2`, Gitea `1.27.3-rootless`). Sandbox handed over at `CP-lab-05`, verified. **Not** a provisioned classroom VM. The Gitea repositories in this sandbox were seeded on 2026-09-11T03:22Z, i.e. **before** commit `d99a26c`, which matters for RE-FIX 4 below.
+- **Final verdict: PASS WITH NOTES.**
+- **Interestingness: STRONG** (unchanged; the E3 Part B reframe turned the previous weakest moment into the sharpest one — see "Interestingness" note at the end of this section).
+
+### R1. Status of the 14 original required fixes
+
+Each was re-run exactly as printed in the revised guide, as `admin` unless noted.
+
+| # | Original defect | Status | Evidence from this run |
+|---|---|---|---|
+| 1 | `apply-argocd-config.sh` never applied the participant's values | **CONFIRMED FIXED** | `apply-argocd-config.sh ~/platform-config/argocd/values.yaml` (overlay) made `policy.csv` live. Separately, the bare invocation now prints `ok values source: platform-config main (Gitea bb81436)` and applies the **committed and pushed** values. No `ARGOCD_VALUES_FILE` deviation was needed anywhere in this run. |
+| 2 | Live `rbac can …` fatal without a source flag | **CONFIRMED FIXED** | `… sync … --namespace argocd` -> `Yes` (rc 0); `… delete … --namespace argocd` -> `No` (rc 1). The §6.3 flag table and the "reads the ConfigMap through your kubeconfig" note are both accurate. |
+| 3 | Apply logs everyone out, guide never said so | **FIXED — but now over-corrected**, see RE-FIX 2 | The script no longer re-stamps passwords: `ok account passwords unchanged: reusing the live hashes (existing logins stay valid)`. The admin session survived **both** applies. The guide's re-login step still works, but the guide's stated cause no longer occurs. |
+| 4 | E3 Part A message string wrong | **CONFIRMED FIXED** | Verbatim: `InvalidSpecError  application destination server 'https://k3d-workload-server-0:6443' and namespace 'storefront-prod' do not match any of the allowed destinations in project 'team-a'`, `Sync Status: Unknown`, `Health Status: Unknown`. Matches the guide word for word. |
+| 5 | E3 Part B refused by a different layer | **CONFIRMED FIXED (repair (a), reframe)** | Verbatim: `Phase: Error`, `Duration: 0s`, `Message: ComparisonError: Failed to load live state: cluster level ClusterRole "team-a-escalation" can not be managed when in namespaced mode`. `kubectl --context k3d-workload get clusterrole team-a-escalation` -> `NotFound`. The guide's three-step ordering claim (spec check -> live-state load -> resource allow-list) is consistent with what the object shows. |
+| 6 | E4 Part A message wrong; UI expectation wrong | **CONFIRMED FIXED** | CLI: `{"level":"fatal","msg":"rpc error: code = PermissionDenied desc = permission denied",…}` (rc 20) — terse, as the guide now says. Server log carries the detailed form naming **`get`**, `security=2`, `user=team-a-dev`. The `logs … \| grep "permission denied"` step works (one caveat, RE-FIX 6). |
+| 7 | Throwaways not renamed; inherited auto-sync | **CONFIRMED FIXED** | Hint 1 now says change `metadata.name` **and** the one field, and to remove `syncPolicy:`. With `syncPolicy` absent from E2 onward, `argocd app sync team-a-netpol` ran immediately. **`another operation is already in progress` did not occur once**, and the ~4.5-minute retry wait from the original run is gone. |
+| 8 | No step actually attempted a delete | **CONFIRMED FIXED** | As `team-a-dev`: `{"level":"fatal","msg":"rpc error: code = PermissionDenied desc = permission denied: applications, delete, team-a/team-a-guestbook, sub: team-a-dev, iat: 2026-09-12T16:51:07Z",…}`. The safety interlock (`rbac can … delete … --namespace argocd` -> `No`) printed `No` first, and `team-a-guestbook` survived with no `deletionTimestamp`. |
+| 9 | E5 Part C printed nothing | **CONFIRMED FIXED** | The `custom-columns` listing printed the guide's exact eight rows, all `<none>`. The cascade table and the "danger is in the delete path" framing are supported by the original run's verified experiments. |
+| 10 | §5.1 verifier output wrong | **NOT FIXED — new mismatch**, see RE-FIX 1 | The guide now shows 19 rows; the revised verifier prints **21**. |
+| 11 | §6.1 `grep` output wrong | **FIXED for this sandbox; breaks on a fresh VM**, see RE-FIX 4 | Output matched byte for byte here (`136:  rbac:` …). The seed file that a fresh bootstrap pushes to Gitea has since changed. |
+| 12 | §6.3 `--policy-file` example ran before the file existed | **CONFIRMED FIXED** | The block now writes `/tmp/rbac-demo.csv` first, then asks. Printed `Yes`. Self-contained and copy-runnable. |
+| 13 | `platform-config/applications/` missing | **CONFIRMED FIXED** | E2 now opens with `mkdir -p ~/platform-config/applications`; the subsequent `kubectl apply -f platform-config/applications/team-a-guestbook.yaml` worked from a clean clone. |
+| 14 | Fence never committed | **CONFIRMED FIXED** | New E1 Part C ran clean: `[main bb81436] team-a: restricted AppProject and least-privilege RBAC grant` / `93401a2..bb81436  main -> main`. Checkpoint criterion 4 (`git log --oneline -1`) is now satisfiable. One prerequisite caveat: RE-FIX 8. |
+
+**Score: 12 of 14 confirmed fully fixed on the participant path; 1 fixed but over-corrected in the text (3); 1 not fixed (10).**
+
+### R2. Commands executed in this re-test
+
+All run with `KUBECONFIG=$HOME/.argocd-course/kubeconfig`, `COURSE_LOCAL=1`, course scripts on `PATH`.
+
+1. §5.1 `reset-lab.sh CP-lab-05 --verify-only`
+2. §6.1 `cat platform-config/projects/storefront.yaml`; `grep -n -A6 "rbac:" platform-config/argocd/values.yaml`
+3. §6.3 `cat > /tmp/rbac-demo.csv …`; `argocd admin settings rbac can demo-user sync applications 'demo/demo-app' --policy-file /tmp/rbac-demo.csv`; `kubectl --context k3d-workload auth can-i create deployments.apps -n team-a --as=system:serviceaccount:argocd-access:argocd-manager`
+4. E1 hints: `kubectl --context k3d-workload api-resources | grep -i networkpolic`; `argocd cluster list`
+5. E1-A: wrote `projects/team-a.yaml` from the spec table; `kubectl --context k3d-mgmt apply -f …`; `argocd proj get team-a`; `argocd proj get team-a -o yaml`
+6. E1-B: `/tmp/my-policy.csv` unit tests (`sync` -> `Yes`, `delete` -> `No`); edited `values.yaml`; `apply-argocd-config.sh ~/platform-config/argocd/values.yaml`; the printed `argocd login` re-login; both `rbac can … --namespace argocd` checks
+7. Extra (environment verification, not in the guide): bare `apply-argocd-config.sh`
+8. E1-C: `git add` / `commit` / `push origin main`
+9. E2: `mkdir -p ~/platform-config/applications`; wrote the Application; `kubectl apply`; `argocd app sync`; `argocd app get`
+10. E3-A and E3-B: throwaways, `kubectl apply`, `argocd app get` / `argocd app sync … ; argocd app get …`; `kubectl --context k3d-workload get clusterrole team-a-escalation`
+11. E4-A: `argocd login … --username team-a-dev`; `argocd app sync storefront-prod-workload`; `argocd app list`; re-login as admin; `kubectl -n argocd logs deploy/argocd-server | grep "permission denied"`
+12. E4-B: `kubectl auth can-i create networkpolicies.networking.k8s.io …`; throwaway; `argocd app sync team-a-netpol ; argocd app get team-a-netpol`; plus a non-guide check of `.status.operationState.syncResult.resources` for both E3-B and E4-B
+13. E4 cleanup: three `argocd app delete … --cascade=false`
+14. E5-A/B: interlock check; `argocd app delete team-a-guestbook` as `team-a-dev`; re-login as admin; the `custom-columns` finalizer listing
+15. §9 checkpoint criteria 1, 3, 4
+16. Handoff: `reset-lab.sh CP-capstone --local --yes`, then `reset-lab.sh CP-capstone --local --verify-only`
+
+**Deviations from the printed text (same three as the original run, none semantic):** `--local` on the course scripts; `~` maps to `$HOME/.argocd-course/student-home`; `argocd login --username team-a-dev` was given `--password "$(cat ~/course/credentials/team-a-dev.txt)"` and `git push` a scratch `GIT_ASKPASS`, because this shell is non-interactive. No `ARGOCD_VALUES_FILE` override was used at any point — that deviation is now retired.
+
+### R3. Environment changes verified
+
+| Change | Verified? | Evidence |
+|---|---|---|
+| `apply-argocd-config.sh` base values come from `platform-config` `main` in Gitea | **Yes** | `ok values source: platform-config main (Gitea bb81436)` — the short SHA is the commit E1 Part C had just pushed. Explicit `$ARGOCD_VALUES_FILE` override and the seed fallback are both present in `resolve_base_values()`; the fallback warns loudly. |
+| `reset-lab.sh` resets participant clones to `origin/main` | **Yes** | After `reset-lab.sh CP-capstone`, `git -C ~/platform-config log --oneline -1` -> `b14a82c checkpoint CP-capstone` with a clean tree; my `bb81436` commit and both edited files were discarded, exactly as the guide's E1 Part C warns. |
+| `reset-lab.sh` deletes non-checkpoint AppProjects and asserts `team-a` / `team-a-guestbook` ABSENT before `CP-capstone` | **Yes** | `CP-lab-05` verify now prints `PASS  Application team-a-guestbook absent` and `PASS  AppProject team-a absent`. |
+| Argo CD session survives an apply (root-cause fix for original defect 3) | **Yes** | `ok account passwords unchanged: reusing the live hashes (existing logins stay valid)`; `argocd account get-user-info` still `Logged In: true` with no re-login. |
+| Course commands installed on `PATH` | **Code only** | `install_course_commands()` and the `/etc/profile.d/course-path.sh` branch exist in `bootstrap-vm.sh`. This sandbox predates the change (`~/.argocd-course/bin` holds only `argocd`, `helm`, `kubectl`, `yq`), so `PATH` was still set by hand here. **Needs one fresh-bootstrap pass to confirm.** |
+| `global.domain: localhost:8443` | **No — not in effect**, see RE-FIX 4 | Present in the on-disk seed file, absent from Gitea `main` in this sandbox. `argocd-cm`'s `url` is still `https://argocd.example.com` and `argocd app get` still prints `https://argocd.example.com/applications/…`. |
+| Guide 06 no longer pre-answers Lab 5's E3 example | **Yes** | Guide 06 §5.5 now uses tenant `payments` / namespace `platform-system`, and carries the corrected `do not match any of the allowed destinations in project` string. Its AppProject worked example is `storefront`, not `team-a`. (But see RE-FIX 7 for the RBAC half.) |
+| Capstone F2 / `capstone-check` / seed spoiler scrub | **Not re-tested** | Out of scope for a targeted Lab 5 re-test; flagged for the capstone's own validation pass. |
+
+### R4. Required fixes (this re-test)
+
+#### RE-FIX 1. §5.1 "Expected output" is missing two rows the verifier now prints — MEDIUM
+
+**Location:** §5.1 expected-output block, and the sentence immediately after it.
+
+The revised verifier prints **21** rows. The guide shows 19 and omits the two new absence assertions. Replace the block's middle with the real output:
+
+```text
+  PASS  Application hello-reconcile absent
+  PASS  Application storefront-dev absent
+  PASS  Application team-a-guestbook absent
+  PASS  AppProject team-a absent
+  PASS  ApplicationSet storefront present
+```
+
+(the two new rows sit between `storefront-dev absent` and `ApplicationSet storefront present`; every other row and the final `PASS CP-lab-05 is in the expected state.` line are correct as printed).
+
+The paragraph after the block is now self-contradicting. Current text:
+
+> Notice what the verifier does **not** list: there is no `AppProject team-a` and no `team-a-dev` RBAC. That absence is the correct starting state — you will create both.
+
+Replacement:
+
+> Notice the two rows that assert an **absence**: `Application team-a-guestbook absent` and `AppProject team-a absent`. The verifier is not merely silent about team-a — it actively checks that team-a does not exist yet, because that is the correct starting state. You will create both, plus the `team-a-dev` RBAC grant, in Exercise 1.
+
+#### RE-FIX 2. The guide promises a logout on every apply; the environment no longer does that — MEDIUM
+
+**Location:** header time-budget note; §6.2 blockquote "Expect to be logged out — every single time"; E1 Part B ("then log in again, because the apply revoked your session"); E2 Hint 3; troubleshooting row 1; E5 Part B.
+
+`apply-argocd-config.sh` now reuses the live bcrypt hashes and `passwordMtime` when the credential files have not changed, and announces it:
+
+```text
+  ok account passwords unchanged: reusing the live hashes (existing logins stay valid)
+```
+
+Both applies in this run left the admin CLI session valid (`argocd account get-user-info` -> `Logged In: true` with no re-login) and the `invalid session: account password has changed since token issued` error **never appeared**. The printed re-login command still works and is harmless, but a participant who is told "expect this every single time" and then never sees it will distrust the guide at exactly the moment the lab needs their trust.
+
+Replace the §6.2 blockquote with:
+
+> **If the credentials changed, you will be logged out.** Applying the configuration re-stamps the Argo CD account passwords *only when the underlying credential files have changed*; when they have not, the wrapper reuses the live hashes and prints `account passwords unchanged: reusing the live hashes (existing logins stay valid)`, and your session survives. If instead you see `account passwords (re)stamped: every existing argocd session is now invalid; log in again`, then the very next `argocd` command will fail with:
+>
+> ```text
+> {"level":"fatal","msg":"rpc error: code = Unauthenticated desc = invalid session: account password has changed since token issued","time":"..."}
+> ```
+>
+> That is not a fault — it is the apply, not your policy. Log in again and refresh the browser tab:
+>
+> ```bash
+> argocd login localhost:8443 --username admin \
+>   --password "$(cat ~/course/credentials/argocd-admin.txt)" --insecure
+> ```
+
+In E1 Part B, change "then log in again, because the apply revoked your session (Section 6.2)" to "the re-login below is harmless either way — run it if the apply reported that it re-stamped the passwords (Section 6.2)". Keep the command block. In the header time budget, delete "Each time you apply Argo CD configuration you are logged out and log in again, which costs about a minute per apply; the guide tells you exactly where that happens." Troubleshooting row 1 should keep the symptom and fix but change "This is expected, not a fault" to "This happens when the apply re-stamped the account passwords — check the wrapper's own output line."
+
+#### RE-FIX 3. Troubleshooting row 2 describes a behaviour the wrapper no longer has — MEDIUM
+
+**Location:** §8 troubleshooting, row "`apply-argocd-config.sh` succeeds but the policy is unchanged", and the §6.2 sentence "so the script applies *your* clone and not the pristine seed copy the course ships".
+
+The wrapper's default base is now `platform-config` `main` as Gitea serves it; the seed copy is a warned last resort. Verified:
+
+```text
+$ apply-argocd-config.sh            # no arguments
+==> Applying Argo CD configuration (chart 10.8.4, v3.5.2)
+  ok values source: platform-config main (Gitea bb81436)
+```
+
+Replacement for the troubleshooting row's Likely cause / Fix cells:
+
+| `apply-argocd-config.sh` succeeds but the policy is unchanged | The wrapper applies what is **committed and pushed** to `platform-config` `main`, plus any values file you pass it. An edit that is only in your working copy reaches the cluster only if you pass its path. | Either pass the file — `apply-argocd-config.sh ~/platform-config/argocd/values.yaml` — or commit and push first. Read the wrapper's own `values source:` line to see which it used, then verify with `kubectl --context k3d-mgmt -n argocd get cm argocd-rbac-cm -o jsonpath='{.data.policy\.csv}'`. |
+
+And in §6.2, replace "so the script applies *your* clone and not the pristine seed copy the course ships" with "so the script applies the edit that is still only in your working copy — its default is whatever `platform-config` `main` currently holds in Gitea, which will not include your change until Part C pushes it."
+
+#### RE-FIX 4. Two "expected output" claims break on a freshly bootstrapped VM — MEDIUM (environment parity)
+
+**Location:** §6.1 expected `grep` output; E2's "One cosmetic oddity" callout.
+
+`courseware/environment/repos/platform-config/argocd/values.yaml` was rewritten in commit `d99a26c`: comments changed and `global.domain: localhost:8443` was added, which moves `rbac:` from line **136** to line **141**. `seed-repos.sh` pushes that file into Gitea at bootstrap, and `reset-lab.sh` republishes from the seed **mirror**, not from the courseware checkout — so this sandbox (seeded 2026-09-11T03:22Z, before `d99a26c`) still serves the old file while any newly bootstrapped classroom VM will serve the new one.
+
+On a fresh VM the guide's §6.1 block will instead print:
+
+```text
+141:  rbac:
+142-    # No permissions by default: an account that is not named in policy.csv can
+143-    # log in and see nothing. Every grant is written here, deliberately.
+144-    policy.default: ""
+145-    policy.csv: ""
+```
+
+and `argocd app get` will print `URL: https://localhost:8443/applications/team-a-guestbook`, which makes E2's entire "cosmetic oddity" callout wrong.
+
+Two things are needed, and they belong to different owners:
+- **`environment-engineer`:** decide and state which content is canonical, and make one bootstrap + `reset-lab.sh CP-lab-05` pass on a machine seeded from `d99a26c` or later, so the guide can be written against a single reality. (This sandbox was deliberately left un-reseeded so the finding stays reproducible.)
+- **`lab-engineer`, once that is settled:** paste the resulting `grep` output verbatim into §6.1, and either delete E2's `argocd.example.com` callout (if `global.domain` takes effect) or keep it as written (if it does not). Do not leave the guide matching only a stale sandbox.
+
+#### RE-FIX 5. The lab's central "count the result rows" tell is invisible in the CLI — MEDIUM
+
+**Location:** §4 point 3; E3 Part B "What to notice" 3; E4 Part B "There is also a resource result row …"; §9 checkpoint column "Resource result rows?"; key takeaway "Count the result rows."
+
+The distinction is real in the API object and in the UI, and it is exactly inverted in the CLI. Verified both ways:
+
+```text
+$ kubectl -n argocd get app team-a-clusterrole -o jsonpath='{.status.operationState.syncResult.resources}'
+                                      # empty  -> no result rows, as the guide says
+
+$ kubectl -n argocd get app team-a-netpol -o jsonpath='{.status.operationState.syncResult.resources}'
+[{"group":"networking.k8s.io","kind":"NetworkPolicy","name":"team-a-default-deny","namespace":"team-a",
+  "status":"SyncFailed","hookPhase":"Failed","syncPhase":"Sync","message":"networkpolicies… is forbidden: …"}]
+```
+
+But `argocd app get` prints the **resource tree**, not the sync result, so **both** failures show a table with a row, and neither shows the word `SyncFailed`:
+
+```text
+# E3-B (fence 2b) — a row exists, STATUS is Unknown, MESSAGE is empty
+GROUP                      KIND         NAMESPACE  NAME               STATUS   HEALTH   HOOK  MESSAGE
+rbac.authorization.k8s.io  ClusterRole             team-a-escalation  Unknown  Missing
+
+# E4-B (fence 3) — a row exists, STATUS is OutOfSync, MESSAGE carries the Kubernetes rejection
+GROUP              KIND           NAMESPACE  NAME                 STATUS     HEALTH   HOOK  MESSAGE
+networking.k8s.io  NetworkPolicy  team-a     team-a-default-deny  OutOfSync  Missing        networkpolicies.networking.k8s.io is forbidden: User "system:serviceaccount:argocd-access:argocd-manager" cannot create resource "networkpolicies" in API group "networking.k8s.io" in the namespace "team-a"
+```
+
+A CLI-only participant following §4 point 3 literally will count a row in both cases and reach the wrong conclusion on the lab's headline question. Add this immediately after §4 point 3:
+
+> **Where to look for the result rows.** In the UI, the sync-result panel has a section literally headed **RESULT**, and a fence-3 failure fills it with a row whose STATUS is `SyncFailed`. In the CLI, `argocd app get` prints the Application's **resource tree** instead, which always has a row for every resource the Application manages — so the tell there is the **MESSAGE column**: empty for an Argo CD-side refusal, carrying the cluster's own rejection text for a Kubernetes-side one. If you want the literal result list from the CLI, ask for it:
+>
+> ```bash
+> kubectl --context k3d-mgmt -n argocd get application <name> \
+>   -o jsonpath='{.status.operationState.syncResult.resources}' ; echo
+> ```
+>
+> It prints nothing at all for a fence-2/2b refusal, and one `"status":"SyncFailed"` entry for a fence-3 refusal.
+
+Then change the §9 checkpoint column header from `Resource result rows?` to `Result rows (UI RESULT panel / syncResult)?` so participants know which table is being scored, and adjust E3 Part B "What to notice" 3 to say "no rows in the **RESULT** panel" rather than "no resource result rows in the panel".
+
+#### RE-FIX 6. E4 Part A's log step returns two lines, and the sample drops the real line prefix — LOW
+
+**Location:** E4 Part A, "Expected output (one line per denial; yours will carry your own timestamps)".
+
+Actual, from this run:
+
+```text
+$ kubectl --context k3d-mgmt -n argocd logs deploy/argocd-server | grep "permission denied"
+time="2026-09-12T16:50:18Z" level=warning msg="user tried to get application which they do not have access to: rpc error: code = PermissionDenied desc = permission denied: applications, get, storefront/storefront-prod-workload, sub: team-a-dev, iat: 2026-09-12T16:50:18Z" application=storefront-prod-workload namespace=argocd project=storefront security=2 user=team-a-dev
+time="2026-09-12T16:50:18Z" level=warning msg="finished call" grpc.code=PermissionDenied grpc.component=server grpc.error="rpc error: code = PermissionDenied desc = permission denied" grpc.method=Get grpc.method_type=unary grpc.service=application.ApplicationService grpc.start_time="2026-09-12T16:50:18Z" grpc.time_ms=5.417 peer.address="10.42.0.1:62218" protocol=grpc
+```
+
+Change the caption to "**Expected output** (*two* lines per denial — the interesting one first, then gRPC's own record of the same call; yours will carry your own timestamps)", prefix the sample line with `time="2026-09-12T16:50:18Z" `, and add the second line. One extra sentence is worth having: *"The second line is the transport layer reporting the same refusal with `grpc.method=Get` — independent confirmation that the call that was blocked was the `get`, not the `sync`."* That strengthens the point the exercise is already making.
+
+#### RE-FIX 7. Guide 06 still hands participants the answer to E1 Part B — LOW (cross-guide)
+
+**Location:** `06-security-multitenancy-governance.md` §5.2 (lines ~275-278) and §7 "Try It Yourself" (lines ~425-444); affects Lab 5 E1 Part B.
+
+The destination-message spoiler is gone (Guide 06 now uses tenant `payments`), but the RBAC half is not. Guide 06 prints, twice, for the same role and the same account:
+
+```csv
+p, role:team-a, applications, get,      team-a/*, allow
+p, role:team-a, applications, sync,     team-a/*, allow
+p, role:team-a, applications, action/*, team-a/*, allow
+g, team-a-dev, role:team-a
+```
+
+and its §7 then runs the identical two unit tests Lab 5 E1 Part B asks the participant to devise (`sync` and `delete` on `team-a/team-a-guestbook`, `--policy-file`). Lab 5's "you write both files; the guide gives you the spec and the *shape*, not the finished answer" is therefore not true for Part B. Cheapest repair, mirroring what was already done for the destination example: rename Guide 06's policy example to a different tenant (`role:payments` / `payments-dev` / `payments/*`) and change its Try It Yourself object to `payments/payments-api`. Lab 5 then still teaches the shape without printing team-a's answer.
+
+#### RE-FIX 8. E1 Part C's commit needs a Git identity that only Lab 2 sets — LOW
+
+**Location:** E1 Part C; also an `environment-engineer` item.
+
+`git commit` needs `user.name`/`user.email`. Nothing global sets them; only **Lab 2 §5.3** does, and only inside the clone the participant makes themselves. A participant who skipped or re-made that clone gets:
+
+```text
+Author identity unknown
+*** Please tell me who you are.
+fatal: unable to auto-detect email address
+```
+
+In this sandbox the clone is created by `bootstrap-vm.sh`, not by the participant, so it carried no identity and the commit failed until it was set (the Lab 2 values were used: `student@lab.local` / `Student`). Two cheap repairs, either is enough: (a) add one line to E1 Part C — *"If Git replies `Author identity unknown`, set the identity Lab 2 configured: `git -C ~/platform-config config user.email "student@lab.local"` and `… config user.name "Student"`"*; and/or (b) have `bootstrap-vm.sh` write `user.name`/`user.email` into the course `.gitconfig` so every clone inherits them. (b) also fixes the sandbox's parity gap with a participant who did Lab 2.
+
+### R5. Expected vs. actual — no other differences
+
+Every other printed command in the revised guide produced exactly the output the guide claims, including: §6.1 `cat`/`grep`; §6.3 both tools; E1 `argocd proj get team-a` (and the "your four kinds are not in this summary" caveat, plus the `-o yaml` claim that `clusterResourceWhitelist` is absent from the stored spec — confirmed); E2 `Synced`/`Healthy` with both resources; E3-A condition; E3-B sync result; E4-A terse denial and server log; E4-B `no` from `auth can-i` and the verbatim `forbidden` message; the three `--cascade=false` deletes (no prompt, as stated); E5-A interlock and detailed denial; E5-B finalizer listing (all eight rows `<none>`); §9 criteria 1, 3 and 4.
+
+### R6. Runtime
+
+| Segment | Machine time observed |
+|---|---|
+| §5.1 verifier | 2 s |
+| §6.1 + §6.3 | ~6 s |
+| E1 (apply project, unit tests, `apply-argocd-config.sh`, re-login, live checks, commit + push) | ~27 s, of which the apply is 17 s |
+| bare `apply-argocd-config.sh` (extra verification, not in the guide) | 4 s |
+| E2 (apply + sync + get) | ~2 s |
+| E3 A + B | ~10 s |
+| E4 A + B + cleanup | ~14 s |
+| E5 A + B | ~3 s |
+| `reset-lab.sh CP-capstone --local --yes` | 58 s |
+| `reset-lab.sh CP-capstone --local --verify-only` | 2 s |
+| **Total machine time on the required path** | **~65 s** |
+
+Everything else is human time: reading sections 1-6, writing the AppProject from the spec table, writing and unit-testing the policy lines, writing the Application and three throwaways, recording five predictions, and filling the E4 comparison table and the §9 checkpoint table.
+
+The revised header claims **~46 min required, budget 50**. That is now credible — a material improvement on the original 45-min claim, because two of the original time sinks are genuinely gone: the ~4.5-minute auto-sync retry wait (fix 7) and the per-apply re-login (fix 3's environment repair). Expect **50-60 minutes** for a participant writing an AppProject from a specification for the first time; the 8 minutes budgeted for E1 is the tightest cell in the table, since it now contains three authored artifacts plus a commit and push. Note that the budget still charges ~1 min per apply for a re-login that no longer happens, which quietly absorbs some of that overrun (see RE-FIX 2).
+
+### R7. Screenshot accuracy check
+
+All seven PNGs were opened and compared against the **revised** alt text and captions, and against the live states reproduced in this run. **All seven match. Nothing was re-captured.**
+
+| File | Revised caption accurate? | Note |
+|---|---|---|
+| `lab-05-01-env-check-projects.png` | **Y** | `default`, `platform`, `storefront`; no `team-a`. Sidebar shows `v3.5.2`. Matches §5.2 verbatim. |
+| `lab-05-02-project-team-a.png` | **Y** | SOURCE REPOSITORIES one entry; DESTINATIONS one row with **Name blank**; "The cluster resource allow list is empty"; NAMESPACE RESOURCE ALLOW LIST exactly ConfigMap, Service, Deployment/`apps`, NetworkPolicy/`networking.k8s.io`. Identical to the project I built in E1. The caption's four "What to notice" points are all visible. |
+| `lab-05-03-destination-rejected.png` | **Y — now correct** | Shows `InvalidSpecError` and the full `do not match any of the allowed destinations in project 'team-a'` message. The revised alt text quotes it exactly; the original mismatch is resolved. |
+| `lab-05-04-cluster-scoped-blocked.png` | **Y — now correct** | OPERATION Sync, PHASE Error, the `ComparisonError … can not be managed when in namespaced mode` MESSAGE, identical STARTED AT / FINISHED AT, DURATION 0s, INITIATED BY admin, **and no RESULT section at all**. The revised caption's layer claim now matches the image. |
+| `lab-05-05-argocd-rbac-denied.png` | **Y — now correct** | `Failed to load data, please try again.` plus the toast `Unable to load data: permission denied`, and no SYNC/DELETE/REFRESH buttons — exactly what the revised alt text describes and what E4 Part A now predicts. |
+| `lab-05-06-kubernetes-forbidden.png` | **Y** | PHASE Failed, the verbatim `forbidden` MESSAGE, and a **RESULT** table with one row, STATUS `SyncF…` (`SyncFailed`), MESSAGE repeating the Kubernetes rejection. This image is also the evidence for RE-FIX 5: the panel that proves the guide's point is labelled RESULT and exists only in the UI. |
+| `lab-05-07-delete-denied.png` | **Y** | Delete dialog with the "will delete all the application's managed resources" warning, the typed-name confirmation, the three propagation radios (Foreground selected / Background / Non-cascading), and the toast `Unable to delete application: permission denied: applications, delete, team-a/team-a-guestbook, sub: team-a-dev, iat: …` — the same detailed string the CLI produced in E5 Part A this run. |
+
+### R8. Reproducibility and environment-parity concerns
+
+1. **Seed drift (RE-FIX 4) is the significant one.** Because `reset-lab.sh` republishes from the local seed **mirror** rather than from the courseware checkout, a sandbox and a freshly bootstrapped VM can serve different repository content indefinitely. Any guide text that quotes file line numbers or values-derived output (§6.1's `grep -n`, E2's `URL:` line) is only as stable as the last `seed-repos.sh` run. Recommend `environment-engineer` add a bootstrap/reset banner naming the seed commit, so a tester can tell at a glance which content a machine is serving.
+2. **Course commands on `PATH`** are implemented but unexercised here; needs one fresh-bootstrap pass (VM and `--local`).
+3. **Git identity** (RE-FIX 8) — the sandbox's bootstrap-created clone does not match a participant's Lab 2-created clone.
+4. **Unchanged from the original run:** UI access is direct (`https://localhost:8443`) here and via SSH tunnel on the VM; nothing else in this lab depends on ingress, DNS or external network. No public internet was needed at any point — Gitea, the chart and the images are all local.
+5. **Resource use stayed modest** and unchanged from the original run; no lab step is heavy enough to strain a shared classroom VM.
+
+### R9. Optional improvements (new, additive to the original list)
+
+1. **E3 hint 1 could name the file paths it implies.** The printed commands read `/tmp/team-a-wrong-dest.yaml` and `/tmp/team-a-clusterrole.yaml`, but the hint only says "copy your E2 file twice". One clause — "save the copies as `/tmp/team-a-wrong-dest.yaml` and `/tmp/team-a-clusterrole.yaml`, which is what the commands below expect" — removes the only moment in the lab where a participant has to infer a path.
+2. **E4-A gains a free reinforcement** from `argocd app list` as `team-a-dev`: it prints only `argocd/team-a-guestbook` (plus any throwaways still in project `team-a`) and no `storefront-*` row at all, which makes "least privilege, not no access" visible rather than asserted. It is one command and supports "What to notice" 3 directly.
+3. **The `values.yaml` comment participants read in §6.1 is stale.** It says the `role:team-a` policy is "applied via the CP-capstone values overlay in resets", but resets now pin the checkpoint's values through `$ARGOCD_VALUES_FILE` and the overlay list is empty. The newer seed file already fixes this wording; it is another argument for settling RE-FIX 4.
+4. **§9's self-check would be sharper with the `syncResult` one-liner** from RE-FIX 5 offered as the mechanical way to fill the "result rows" column, rather than leaving it to eyeballing.
+
+### R10. Interestingness (re-assessed): **STRONG**
+
+The original caveat is gone. E3 Part B is no longer a prediction contradicted by its own evidence — it now *asks* which of two guards the participant built will speak first, and the answer ("the cluster registration, because live state is loaded before sync tasks are built") is a genuinely non-obvious piece of Argo CD internals that the message text alone proves. E4's contrast between the terse and the detailed `permission denied` is now paid off explicitly in E5 Part A, which is the best single moment in the lab: the same fence, two different amounts of disclosure, with a stated rule for why. E1 Part C turns the governance claim from an assertion into something the participant does and can see discarded by a reset. Participants predict five times, write three artifacts from specifications, unit-test a policy before shipping it, read a server log, and answer "which team do you page" — this is decision-making, not transcription.
+
+The one drag on it is RE-FIX 7: anyone who read Guide 06 §5.2 attentively already has E1 Part B's answer.
+
+### R11. Final sandbox state
+
+- **`reset-lab.sh CP-capstone --local --verify-only` -> PASS (22/22)**, including `Argo CD RBAC role:team-a -> team-a-dev present` — and this time with **no deviation**: the Lab 5 -> capstone handoff holds on the participant path exactly as printed.
+- Applications, all `Synced`/`Healthy`: `platform-root`, `platform-quotas`, `platform-netpol`, `platform-agent`, `storefront-{dev,staging,prod}-workload`, `team-a-guestbook`. All three throwaways deleted.
+- AppProjects: `default`, `platform`, `storefront`, `team-a`. Live `policy.csv` holds the checkpoint's four lines (`get`, `sync`, `action/*`, and the `g,` binding).
+- Participant clone `~/platform-config` reset to `origin/main` at `b14a82c checkpoint CP-capstone`, working tree clean; the E1 commit `bb81436` was discarded by the reset, as the guide warns.
+- No sync windows, no project roles, no capstone fault markers, `applicationsetcontroller.policy` absent. Workload cluster: `team-a` runs the guestbook Deployment + Service, no NetworkPolicy, no `team-a-escalation` ClusterRole.
+- Gitea repositories still carry the **pre-`d99a26c`** seed content (deliberately not re-seeded, so RE-FIX 4 stays reproducible).
+
+### R12. Environment scripts changed in this re-test
+
+**None.** Nothing blocked execution, so no environment script was modified. The only files this re-test touched under version control are this report and the commit recording it.
+
+### R13. Retest requirements
+
+1. **One fresh-bootstrap pass** (`bootstrap-vm.sh` from `d99a26c` or later, then `reset-lab.sh CP-lab-05`) to settle RE-FIX 4 — the §6.1 `grep` output and whether `global.domain` takes effect — and to confirm the course commands land on `PATH` in both VM and `--local` mode. Until that runs, §6.1 and E2's `URL:` callout are verified only against a stale sandbox.
+2. **Re-read §5.1, §6.2, E1 Part B, E2 Hint 3, §8 rows 1-2, §4 point 3 and §9's checkpoint header** after RE-FIX 1, 2, 3 and 5 land; all four are text-only and need no cluster work to verify beyond one `reset-lab.sh CP-lab-05 --verify-only` and one `apply-argocd-config.sh`.
+3. **Guide 06** needs its own small pass for RE-FIX 7, then a check that Lab 5 E1 Part B is no longer pre-answered anywhere in Day 2.
+4. **One pass on a real provisioned VM** for the SSH-tunnel UI path (carried over from the original run, still outstanding).
+5. No re-capture of any Lab 5 screenshot is required unless RE-FIX 5 changes what E3 Part B and E4 Part B ask participants to look at; the seven current PNGs are accurate to the shipped guide and to the live UI.
