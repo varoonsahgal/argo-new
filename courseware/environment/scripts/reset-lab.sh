@@ -229,6 +229,39 @@ step3_force_git() {
     force_main_to_checkpoint "${repo}"
     ok "${repo} main -> ${TAG}"
   done
+  refresh_participant_clones
+}
+
+# A participant's own clones are working copies, so forcing `main` in Gitea does
+# not touch the edits they already made. Without this, a reset leaves their
+# previous answers (and half-finished experiments) sitting in the files the next
+# lab tells them to edit. This is the "discards your work" the guides warn about.
+refresh_participant_clones() {
+  local dir name url
+  # The clone URLs use the in-cluster host name `lab-gitea`, which only resolves
+  # through the course git config's insteadOf rule. In --local mode HOME is the
+  # build machine's, so that file has to be named explicitly.
+  if [ -f "${COURSE_USER_HOME}/.gitconfig" ]; then
+    export GIT_CONFIG_GLOBAL="${COURSE_USER_HOME}/.gitconfig"
+  fi
+  for dir in "${COURSE_USER_HOME}"/*/; do
+    [ -d "${dir}.git" ] || continue
+    # Match both spellings: the insteadOf rule above rewrites the lab-gitea host
+    # to localhost, and `git remote get-url` prints the rewritten form.
+    url="$(git -C "${dir}" remote get-url origin 2>/dev/null)" || continue
+    case "${url}" in
+      *"${GITEA_CONTAINER}:${GITEA_HOST_PORT}/"*|*"localhost:${GITEA_HOST_PORT}/"*) ;;
+      *) continue ;;
+    esac
+    name="$(basename "${dir}")"
+    if git -C "${dir}" fetch --quiet origin 2>/dev/null \
+       && git -C "${dir}" reset --hard --quiet origin/main 2>/dev/null \
+       && git -C "${dir}" clean -qfd 2>/dev/null; then
+      ok "clone ${name} reset to origin/main"
+    else
+      warn "could not reset clone ${name}; leaving it untouched"
+    fi
+  done
 }
 
 step4_delete_nondesired() {
@@ -250,7 +283,17 @@ step4_delete_nondesired() {
     in_list "${name}" "${DES_APPS}" && continue
     delete_app_cascade "${name}"
   done
-  ok "non-checkpoint AppSets/Applications removed"
+  # Projects a participant created in a later lab (team-a in Lab 5) belong to
+  # that lab, not to an earlier checkpoint. `default` is built in and stays.
+  for name in $(kmgmt -n "${ARGOCD_NAMESPACE}" get appproject \
+                  -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    [ "${name}" = "default" ] && continue
+    in_list "${name}" "${DES_PROJECTS}" && continue
+    log "deleting AppProject ${name}"
+    kmgmt -n "${ARGOCD_NAMESPACE}" delete appproject "${name}" \
+      --ignore-not-found >/dev/null 2>&1 || true
+  done
+  ok "non-checkpoint AppSets/Applications/AppProjects removed"
 }
 
 step5_apply_bundle() {
@@ -416,6 +459,14 @@ verify_checkpoint() {
   if [ "${IDX}" -ge 3 ]; then
     vrow "Application hello-reconcile absent" "$(bool_fail app_exists_kc hello-reconcile)"
     vrow "Application storefront-dev absent" "$(bool_fail app_exists_kc storefront-dev)"
+  fi
+
+  # Lab 5 builds team-a. Before the capstone checkpoint it must not exist, or a
+  # participant repeating Lab 5 would start from their own previous answer.
+  if [ "${IDX}" -le 4 ]; then
+    vrow "Application team-a-guestbook absent" "$(bool_fail app_exists_kc team-a-guestbook)"
+    vrow "AppProject team-a absent" \
+      "$(bool_fail kmgmt -n "${ARGOCD_NAMESPACE}" get appproject team-a)"
   fi
 
   # ApplicationSets.
