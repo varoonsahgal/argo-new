@@ -294,7 +294,7 @@ Notice also the last line's shape: **`g, team-a-dev, role:team-a`.** In a real d
 Fence 3 is the workload cluster's own Kubernetes RBAC, and it guards the **ServiceAccount** Argo CD uses to write. You built this identity in Lab 2, so this is a recap, not new material — but the *reason* is governance, so it belongs here:
 
 - Argo CD authenticates to the workload cluster as the ServiceAccount **`argocd-manager`** in namespace **`argocd-access`**.
-- Its permissions are **least privilege**: RoleBindings grant it write access **only** in `storefront-dev/staging/prod` and `platform-system`, and a *narrower* set in `team-a` (the same write set **minus** NetworkPolicies, ResourceQuotas, and LimitRanges).
+- Its permissions are **least privilege**: RoleBindings grant it write access **only** in `storefront-dev/staging/prod` and `platform-system`, and a deliberately *narrower* set in the tenant namespace `team-a`. Exactly where that narrower set stops is something you will find out for yourself in Lab 5 — by reading the denial the cluster produces, not by being told.
 - There is **no ClusterRoleBinding** giving it cluster-wide write. It cannot create Namespaces, cannot touch `kube-system`, cannot write cluster-scoped objects.
 
 Two properties are worth restating because auditors ask about them:
