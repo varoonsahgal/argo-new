@@ -100,7 +100,7 @@ Each term gets a plain-language definition first, then its role. These are the w
 
 - **group-to-role mapping.** The rule that says "everyone in IdP group *X* gets Argo CD role *Y*." It is a single `g, <group>, <role>` line in `policy.csv`. This is the heart of SSO governance: you never grant a *person* permissions; you grant a *group* a role, and the IdP decides who is in the group.
 
-- **local account.** An account defined *inside* Argo CD itself (in `argocd-cm`), with a password Argo CD stores, used when there is no identity provider. In this lab, the local account **`team-a-dev`** stands in for "a member of an SSO group": mapping it to a role with `g, team-a-dev, role:team-a` behaves like mapping a real IdP group, so you can practice the governance without an IdP.
+- **local account.** An account defined *inside* Argo CD itself (in `argocd-cm`), with a password Argo CD stores, used when there is no identity provider. In this lab, the local account **`team-a-dev`** stands in for "a member of an SSO group": mapping it to a role with a `g, <account>, <role>` line behaves like mapping a real IdP group, so you can practice the governance without an IdP.
 
 - **project role, and its JWT project token.** A **project role** is a role defined *inside a single AppProject* (`spec.roles`), scoped to only that project's Applications — how a project owner grants narrow, project-local permissions without touching the global `policy.csv`. A **JWT project token** is the credential issued *for* such a role and used by automation: a **JWT (JSON Web Token)** is a signed, self-contained credential string. Together they are the safe replacement for the broad admin token in Section 1's story.
 
@@ -176,13 +176,13 @@ Notice the ownership line at the bottom. It is this session's through-line: **wh
                                           │  IN THIS LAB (no IdP):         │
                                           │  a LOCAL ACCOUNT stands in     │
                                           │  for a group —                 │
-                                          │  g, team-a-dev, role:team-a    │
+                                          │  g, <account>, <role>          │
                                           └────────────────────────────────┘
 ```
 
 **The debrief:** identity and permission are **two different files owned by two different systems.** The IdP owns *who you are and which groups you are in*; Argo CD's `policy.csv` owns *what a group may do.* When someone leaves the `storefront` team, an IdP administrator removes them from the `storefront-devs` group and their Argo CD access is gone **with no change to `policy.csv` at all** — because Argo CD never knew them as a person, only as a group member. That is the entire governance win of SSO: **you stop managing people in Argo CD.** It is also why routine admin logins can be removed — a real person becomes an admin by being in the admin *group*, only when they need to be.
 
-Because this lab has **no identity provider** (Dex, the component that would broker OIDC, is disabled), you cannot demonstrate a real group login. Instead, the local account `team-a-dev` plays the part: the line `g, team-a-dev, role:team-a` is the *same shape* as a real group mapping, with a local account name where a group name would be. Everything you learn about the mapping transfers directly.
+Because this lab has **no identity provider** (Dex, the component that would broker OIDC, is disabled), you cannot demonstrate a real group login. Instead, the local account `team-a-dev` plays the part: a `g, <account>, <role>` line is the *same shape* as a real group mapping, with a local account name where a group name would be. Everything you learn about the mapping transfers directly.
 
 ### V-24 · Secret-management patterns — commit the pointer, never the payload
 
@@ -280,14 +280,14 @@ g, payments-dev, role:payments
 
 Read line by line:
 
-- **`p, role:team-a, applications, get, team-a/*, allow`** — the role `team-a` may **get** (see) any Application whose name matches `team-a/*` (project `team-a`, any app). A permission line is `p, subject, resource, action, object, effect`.
-- **`p, role:team-a, applications, sync, team-a/*, allow`** — the same role may **sync** those apps.
-- **`p, role:team-a, applications, action/*, team-a/*, allow`** — the role may run resource **actions** (like restarting a Deployment) on those apps.
-- **`g, team-a-dev, role:team-a`** — the *grant* line: the account **`team-a-dev`** *has* the role `team-a`. A group line is `g, subject, role`.
+- **`p, role:payments, applications, get, payments/*, allow`** — the role `payments` may **get** (see) any Application whose name matches `payments/*` (project `payments`, any app). A permission line is `p, subject, resource, action, object, effect`.
+- **`p, role:payments, applications, sync, payments/*, allow`** — the same role may **sync** those apps.
+- **`p, role:payments, applications, action/*, payments/*, allow`** — the role may run resource **actions** (like restarting a Deployment) on those apps.
+- **`g, payments-dev, role:payments`** — the *grant* line: the account **`payments-dev`** *has* the role `payments`. A group line is `g, subject, role`.
 
-Notice what is **not** here: there is no `delete` line. The `team-a` role can see and sync its own apps and nothing else — it **cannot delete** an Application, and it has **no visibility at all** into `storefront` or `platform` apps. That is fence 1 doing its job: shaping what a subject may *ask for* before any app or cluster is involved.
+Notice what is **not** here: there is no `delete` line. The `payments` role can see and sync its own apps and nothing else — it **cannot delete** an Application, and it has **no visibility at all** into another tenant's apps. That is fence 1 doing its job: shaping what a subject may *ask for* before any app or cluster is involved.
 
-Notice also the last line's shape: **`g, team-a-dev, role:team-a`.** In a real deployment this would read `g, team-a-devs, role:team-a` — an SSO *group* mapped to the role, with the IdP deciding who is in that group (V-23). Here, with no IdP, the **local account** `team-a-dev` stands in for the group. Same line, same behavior; only the subject's nature differs. This is the substitution that lets Lab 5 teach group governance without an identity provider. *(The base policy ships empty — `policy.default: ""`, `policy.csv: ""` — so a fresh Argo CD grants nobody anything; this `team-a` policy is layered on for the tenant.)*
+Notice also the last line's shape: **`g, payments-dev, role:payments`.** In a real deployment this would read `g, payments-devs, role:payments` — an SSO *group* mapped to the role, with the IdP deciding who is in that group (V-23). Here, with no IdP, a **local account** stands in for the group. Same line, same behavior; only the subject's nature differs. This is the substitution that lets Lab 5 teach group governance without an identity provider. *(The base policy ships empty — `policy.default: ""`, `policy.csv: ""` — so a fresh Argo CD grants nobody anything; a tenant policy like this one is layered on top.)*
 
 ### 5.3 Fence 3, and a 3-minute recap of least-privilege credentials
 
@@ -349,7 +349,7 @@ Two more governance controls ride on top of the three fences. Both are exactly w
 
 | Control | What it is, and where it lives | The governance question it answers |
 |---|---|---|
-| **API account and scoped token** | A **project role** (defined inside one AppProject's `spec.roles`) issued a **JWT project token** — for example a role inside the `team-a` project granted only `sync` on `team-a/*`, whose signed token the CI pipeline uses. Permissions are enforced at **fence 1**. | *"What can this credential do?"* A typo in that pipeline could not touch `storefront-prod`, because the token's fence-1 permissions never reach it. The lesson of Section 1's story is not "tokens are dangerous" — it is "tokens should be **scoped**, and admin tokens should not live in pipelines." Removing routine admin access (SSO admins by group, only when needed) is the same idea applied to humans. |
+| **API account and scoped token** | A **project role** (defined inside one AppProject's `spec.roles`) issued a **JWT project token** — for example a role inside a tenant's project granted only `sync` on that project's apps, whose signed token the CI pipeline uses. Permissions are enforced at **fence 1**. | *"What can this credential do?"* A typo in that pipeline could not touch `storefront-prod`, because the token's fence-1 permissions never reach it. The lesson of Section 1's story is not "tokens are dangerous" — it is "tokens should be **scoped**, and admin tokens should not live in pipelines." Removing routine admin access (SSO admins by group, only when needed) is the same idea applied to humans. |
 | **Deployment window** (higher-environment control) | A **sync window**: an entry on the AppProject that **allows** or **denies** syncing during a time range, with a schedule, a duration, and a scope (applications, namespaces, or clusters). A deny window is a change freeze expressed as configuration. Its escape hatch is `manualSync: true`, which lets a named person sync by hand during the freeze — and that use is itself a recorded sync. You will see the panel in SS-S6-03. | *"Who may bypass the freeze, and does the bypass show up afterward?"* — never merely "is there a freeze?" A freeze nobody can audit is a rule, not a control. |
 
 And the through-line that ties every fence together: **guardrails are what make the audit trail true.** "Every deployment is a commit, so we have a complete audit trail" is only true if nobody can deploy *without* going through Argo CD. If engineers keep direct `kubectl` write access to the workload clusters, the Git history is a record of what people *usually* did. The fences are not bureaucracy layered on GitOps — they are the precondition that makes GitOps' central claim factual.
@@ -428,12 +428,12 @@ p, role:payments, applications, action/*, payments/*, allow
 g, payments-dev, role:payments
 ```
 
-1. May `team-a-dev` **sync** the app `team-a/team-a-guestbook`?
-2. May `team-a-dev` **delete** the app `team-a/team-a-guestbook`?
-3. May `team-a-dev` **sync** the app `storefront/storefront-prod`?
-4. May `team-a-dev` **get** the app `team-a/team-a-guestbook`?
+1. May `payments-dev` **sync** the app `payments/payments-web`?
+2. May `payments-dev` **delete** the app `payments/payments-web`?
+3. May `payments-dev` **sync** the app `storefront/storefront-prod`?
+4. May `payments-dev` **get** the app `payments/payments-web`?
 
-Now save the policy and run the checks. The argument order is `<subject> <action> <resource> <object>` — note that the resource type (`applications`) and the object (`team-a/team-a-guestbook`) are **separate** arguments:
+Now save the policy and run the checks. The argument order is `<subject> <action> <resource> <object>` — note that the resource type (`applications`) and the object (`payments/payments-web`) are **separate** arguments:
 
 ```bash
 cd /tmp
@@ -534,7 +534,7 @@ Save to: courseware/assets/screenshots/day-2/s06-02-team-a-dev-view.png -->
 
 **What to notice:**
 
-1. **Fence 1 is visible as *absence*.** `team-a-dev` cannot even **see** `storefront` or `platform` apps — the `get` permission is scoped to `team-a/*`, so they are not hidden; they do not exist for this subject at all.
+1. **Fence 1 is visible as *absence*.** `payments-dev` cannot even **see** another tenant's apps — the `get` permission is scoped to `payments/*`, so those apps are not hidden; they do not exist for this subject at all.
 2. **This is what an SSO group member would see.** The local account is standing in for a group (V-23); a real `storefront-devs` member would see the mirror image — their apps and not `team-a`'s.
 3. **Compare it to SS-S6-01.** The admin sees four projects; `team-a-dev` sees one tenant's worth of Applications. Same Argo CD, two very different views — that is `policy.csv` doing its job.
 
