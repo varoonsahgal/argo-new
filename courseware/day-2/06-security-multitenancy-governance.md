@@ -269,13 +269,13 @@ The lesson: an AppProject is a *positive* list. It permits exactly what it names
 
 ### 5.2 Fence 1, up close: the real Argo CD RBAC policy
 
-Now fence 1 — the permission layer that decides *who may ask.* Here is the actual policy this course applies for the `team-a` tenant (it lives in `argocd-rbac-cm`, injected by the platform's apply step):
+Now fence 1 — the permission layer that decides *who may ask.* Here is the policy the hypothetical `payments` tenant runs with (it lives in `argocd-rbac-cm`, applied by the platform's apply step). In Lab 5 you will write the equivalent policy for a tenant of your own, so read this for its *shape* rather than memorizing the lines:
 
 ```csv
-p, role:team-a, applications, get,      team-a/*, allow
-p, role:team-a, applications, sync,     team-a/*, allow
-p, role:team-a, applications, action/*, team-a/*, allow
-g, team-a-dev, role:team-a
+p, role:payments, applications, get,      payments/*, allow
+p, role:payments, applications, sync,     payments/*, allow
+p, role:payments, applications, action/*, payments/*, allow
+g, payments-dev, role:payments
 ```
 
 Read line by line:
@@ -419,13 +419,13 @@ The `p` line grants the role `sync` (and you would add `get`) on `payments/*` �
 
 You can **unit-test an RBAC policy before anyone deploys it** — which is what "policy as code" means in practice. The command `argocd admin settings rbac can` answers "may this subject take this action on this object?" against a policy file, touching no cluster and no live Argo CD.
 
-**Predict first.** Given this policy (the real `team-a` policy from Section 5.2), write down **Yes** or **No** for each of the four checks *before* running anything:
+**Predict first.** Given this policy (the `payments` policy from Section 5.2), write down **Yes** or **No** for each of the four checks *before* running anything:
 
 ```csv
-p, role:team-a, applications, get,      team-a/*, allow
-p, role:team-a, applications, sync,     team-a/*, allow
-p, role:team-a, applications, action/*, team-a/*, allow
-g, team-a-dev, role:team-a
+p, role:payments, applications, get,      payments/*, allow
+p, role:payments, applications, sync,     payments/*, allow
+p, role:payments, applications, action/*, payments/*, allow
+g, payments-dev, role:payments
 ```
 
 1. May `team-a-dev` **sync** the app `team-a/team-a-guestbook`?
@@ -438,16 +438,16 @@ Now save the policy and run the checks. The argument order is `<subject> <action
 ```bash
 cd /tmp
 cat > s6-policy.csv <<'EOF'
-p, role:team-a, applications, get,      team-a/*, allow
-p, role:team-a, applications, sync,     team-a/*, allow
-p, role:team-a, applications, action/*, team-a/*, allow
-g, team-a-dev, role:team-a
+p, role:payments, applications, get,      payments/*, allow
+p, role:payments, applications, sync,     payments/*, allow
+p, role:payments, applications, action/*, payments/*, allow
+g, payments-dev, role:payments
 EOF
 
-argocd admin settings rbac can team-a-dev sync   applications 'team-a/team-a-guestbook'   --policy-file s6-policy.csv
-argocd admin settings rbac can team-a-dev delete applications 'team-a/team-a-guestbook'   --policy-file s6-policy.csv
-argocd admin settings rbac can team-a-dev sync   applications 'storefront/storefront-prod' --policy-file s6-policy.csv
-argocd admin settings rbac can team-a-dev get    applications 'team-a/team-a-guestbook'   --policy-file s6-policy.csv
+argocd admin settings rbac can payments-dev sync   applications 'payments/payments-web'      --policy-file s6-policy.csv
+argocd admin settings rbac can payments-dev delete applications 'payments/payments-web'      --policy-file s6-policy.csv
+argocd admin settings rbac can payments-dev sync   applications 'storefront/storefront-prod' --policy-file s6-policy.csv
+argocd admin settings rbac can payments-dev get    applications 'payments/payments-web'      --policy-file s6-policy.csv
 ```
 
 Output (captured from the course's `argocd` **v3.5.2** client during authoring — confirm it matches on your VM):
@@ -461,12 +461,12 @@ Yes
 
 **What to make of it:**
 
-- **1 → `Yes`, 4 → `Yes`:** the role explicitly allows `sync` and `get` on `team-a/*`, and `team-a-dev` has the role via the `g,` line.
+- **1 → `Yes`, 4 → `Yes`:** the role explicitly allows `sync` and `get` on `payments/*`, and `payments-dev` has the role via the `g,` line.
 - **2 → `No`:** there is **no `delete` line**, and Argo CD RBAC denies by default. The *absence* of a permission is the permission model working.
-- **3 → `No`:** the object `storefront/storefront-prod` does not match `team-a/*`, so the role's allow lines never apply. This is fence 1 stopping a cross-tenant request before any app or cluster is touched.
+- **3 → `No`:** the object `storefront/storefront-prod` does not match `payments/*`, so the role's allow lines never apply. This is fence 1 stopping a cross-tenant request before any app or cluster is touched.
 - **The point:** every one of those answers came from a **text file**, with no cluster and no risk. That is where an RBAC change belongs — tested in CI, before your users discover the bug by hitting it. (Clean up with `rm /tmp/s6-policy.csv` when done.)
 
-**One flag to remember for the live variant.** The command above reads a file, so it needs `--policy-file`. If you instead want to ask the question against the **policy your running Argo CD is actually using**, swap that flag for `--namespace argocd` (the namespace Argo CD is installed in), like this: `argocd admin settings rbac can team-a-dev sync applications 'team-a/team-a-guestbook' --namespace argocd`. Argo CD requires **exactly one** of the two flags; supplying neither fails with `please provide exactly one of --policy-file or --namespace`.
+**One flag to remember for the live variant.** The command above reads a file, so it needs `--policy-file`. If you instead want to ask the question against the **policy your running Argo CD is actually using**, swap that flag for `--namespace argocd` (the namespace Argo CD is installed in), like this: `argocd admin settings rbac can <account> sync applications '<project>/<app>' --namespace argocd`. Argo CD requires **exactly one** of the two flags; supplying neither fails with `please provide exactly one of --policy-file or --namespace`.
 
 ---
 
