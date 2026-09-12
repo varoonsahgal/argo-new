@@ -21,7 +21,8 @@
 #   5. re-apply the checkpoint's declarative bundle (Secrets rendered from creds)
 #   6. re-apply the workload-side RBAC state
 #   7. clean or recreate workload namespaces
-#   8. run apply-argocd-config (reverts Lab 5 RBAC and F7 limits)
+#   8. run apply-argocd-config pinned to THIS checkpoint's argocd/values.yaml
+#      (so it restores a known-good configuration whatever state Git is in)
 #   9. wait for expected statuses, then print verification
 set -euo pipefail
 
@@ -124,17 +125,19 @@ argocd_login() {
     --password "${pw}" --insecure >/dev/null
 }
 
-# apply-argocd-config honoring the reset-managed overlay list (see F7's helper).
+# Apply Argo CD from THIS checkpoint's own argocd/values.yaml.
+#
+# apply-argocd-config.sh normally reads platform-config `main` from Gitea (the
+# declarative source a participant edits). A reset must be independent of that:
+# it pins the values to the checkpoint tree it just materialized, so the
+# environment returns to a known-good configuration even if the repository has
+# been left in any state at all. Step 3 has already force-moved `main` to the
+# same tag, so Git and the cluster still agree afterwards.
 reset_apply_argocd() {
-  local overlays=() line
-  if [ -f "${COURSE_STATE_DIR}/argocd-overlays.list" ]; then
-    while IFS= read -r line; do
-      [ -n "${line}" ] || continue
-      overlays+=("${line}")
-    done < "${COURSE_STATE_DIR}/argocd-overlays.list"
-  fi
-  # Expand a possibly-empty array safely under `set -u` (macOS bash 3.2).
-  bash "${COURSE_SCRIPTS_DIR}/apply-argocd-config.sh" ${overlays[@]+"${overlays[@]}"}
+  local pc="$1"
+  local values="${pc}/argocd/values.yaml"
+  [ -f "${values}" ] || die "checkpoint values missing: ${values}"
+  ARGOCD_VALUES_FILE="${values}" bash "${COURSE_SCRIPTS_DIR}/apply-argocd-config.sh"
 }
 
 # Substitute <PLACEHOLDER> pairs in a template and apply to the mgmt cluster.
@@ -339,27 +342,16 @@ step7_workload_ns() {
 }
 
 step8_apply_argocd() {
+  local pc="$1"
   step "8/9 Apply Argo CD configuration"
   ensure_dir "${COURSE_STATE_DIR}"
-  if [ "${CAP_RBAC}" -eq 1 ]; then
-    local overlay="${COURSE_STATE_DIR}/capstone-rbac.values.yaml"
-    cat > "${overlay}" <<'YAML'
-# CP-capstone RBAC overlay (blueprint 8.6): grants role:team-a to team-a-dev.
-configs:
-  rbac:
-    policy.default: ""
-    policy.csv: |
-      p, role:team-a, applications, get, team-a/*, allow
-      p, role:team-a, applications, sync, team-a/*, allow
-      p, role:team-a, applications, action/*, team-a/*, allow
-      g, team-a-dev, role:team-a
-YAML
-    printf '%s\n' "${overlay}" > "${COURSE_STATE_DIR}/argocd-overlays.list"
-    ok "capstone RBAC overlay active"
-  else
-    : > "${COURSE_STATE_DIR}/argocd-overlays.list"
-  fi
-  reset_apply_argocd
+  # Every checkpoint's Argo CD configuration now lives in that checkpoint's own
+  # platform-config/argocd/values.yaml (cp-capstone's copy carries the Lab 5
+  # role:team-a policy). No side-car overlay files are needed any more; clear the
+  # list so a stale one from an older run can never leak into a fault repair.
+  : > "${COURSE_STATE_DIR}/argocd-overlays.list"
+  rm -f "${COURSE_STATE_DIR}/capstone-rbac.values.yaml"
+  reset_apply_argocd "${pc}"
 }
 
 step9_wait_and_verify() {
@@ -523,7 +515,7 @@ main() {
   step5_apply_bundle "${pc}" "${hello}"
   step6_workload_rbac
   step7_workload_ns
-  step8_apply_argocd
+  step8_apply_argocd "${pc}"
   step9_wait_and_verify
 
   rm -rf "${pc}" "${hello}"

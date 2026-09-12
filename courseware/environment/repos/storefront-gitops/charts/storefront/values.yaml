@@ -36,9 +36,9 @@ migration:
   enabled: true
   shouldFail: false
 
-# Horizontal Pod Autoscaler. Off by default; the capstone's bad release turns it
-# on with a minReplicas above replicaCount, which collides with the rendered
-# spec.replicas and creates noisy OutOfSync.
+# Horizontal Pod Autoscaler. Off by default. When it is on, remember that the
+# Deployment template still renders spec.replicas, and whoever writes to that
+# field last wins.
 hpa:
   enabled: false
   minReplicas: 2

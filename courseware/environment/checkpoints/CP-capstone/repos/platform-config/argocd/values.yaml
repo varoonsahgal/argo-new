@@ -1,6 +1,10 @@
 # Argo CD Helm values for the course management cluster (chart argo-cd 10.8.4,
 # appVersion v3.5.2). Blueprint section 8.6.
 #
+# (cp-capstone copy: identical to the baseline file except that configs.rbac now
+# carries the team-a role, which is the state the platform is in once Lab 5's
+# guardrail work has been committed and applied.)
+#
 # These values are applied ONLY by the platform wrapper apply-argocd-config.sh,
 # which runs `helm upgrade --install argocd <vendored-chart> -n argocd` with the
 # copy of this file on this repository's `main` branch. The wrapper stands in for
@@ -142,4 +146,10 @@ configs:
     # No permissions by default: an account that is not named in policy.csv can
     # log in and see nothing. Every grant is written here, deliberately.
     policy.default: ""
-    policy.csv: ""
+    # The team-a role: team-a-dev may look at and sync team-a's own Applications,
+    # and run resource actions on them. Nothing else, and nothing outside team-a.
+    policy.csv: |
+      p, role:team-a, applications, get, team-a/*, allow
+      p, role:team-a, applications, sync, team-a/*, allow
+      p, role:team-a, applications, action/*, team-a/*, allow
+      g, team-a-dev, role:team-a

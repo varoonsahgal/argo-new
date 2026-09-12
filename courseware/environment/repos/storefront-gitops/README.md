@@ -29,9 +29,11 @@ envs/
 
 ## Tags
 
-- `storefront-1.0.0` — the known-good release. `prod` is pinned to this tag so
-  production never tracks a moving branch.
-- `storefront-1.1.0` — created **only** by capstone fault injection; do not use.
+- `storefront-1.0.0` — the current released version. `prod` is pinned to this tag
+  so production never tracks a moving branch.
+
+Releases are cut as Git tags, one per chart version. `git tag -l` lists every tag
+this repository currently has.
 
 ## Chart rule (Helm 4)
 
