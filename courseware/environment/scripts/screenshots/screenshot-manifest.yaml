@@ -981,24 +981,45 @@ shots:
     auth: admin
     route: /applications/storefront-dev-workload
     state: "Application ComparisonError from an unreachable repo"
-    produced_by: "harness: CP-lab-05, docker stop lab-gitea, hard refresh (restart afterward)"
+    produced_by: "harness: CP-capstone, docker stop lab-gitea, argocd app get --hard-refresh (docker start lab-gitea afterward)"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-12). Three corrections to the
+    # provisional entry: (1) an Application detail page holds an event stream open
+    # so it never reaches networkidle -> wait_until: load; (2) the conditions panel
+    # only renders after clicking APP CONDITIONS in the status bar; (3) the real
+    # message is a dial/"no route to host" connection failure, NOT a DNS
+    # "could not resolve host" error, because the recipe stops the Git server
+    # rather than removing its DNS record.
+    wait_until: load
+    actions:
+      - click: ".application-status-panel__conditions"
+      - wait_for: ".application-conditions__condition"
+      - wait_ms: 800
     fidelity: full
     highlight:
-      intent: "condition message"
-      selector: ".application-conditions"
+      intent: "ComparisonError condition message naming the unreachable Git host"
+      selector: ".application-conditions__condition"
 
   - id: SS-S7-02
     guide: "07"
     filename: day-2/s07-02-sync-retrying.png
     app: argocd
     auth: admin
-    route: /applications/scratch-retry
+    route: /applications/scratch-retry?operation=true
     state: "Operation 'retrying' state"
-    produced_by: "harness: retry policy plus failing hook on a scratch Application"
-    fidelity: panel
+    produced_by: "harness: throwaway Application scratch-retry (project default, in-cluster ns s07-scratch) sourcing a failing PreSync hook Job, synced with argocd app sync --async --retry-limit 5; capture during a backoff window"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-12): the operation-state
+    # slide-out opens from the query parameter ?operation=true, and an
+    # Application detail page never reaches networkidle -> wait_until: load.
+    # There is no `.application-operation-state` element in v3.5.2 (only
+    # `.application-operation-state__message` inside the RESULT rows); the
+    # operation summary's MESSAGE row is the single `:has(pre)` details row.
+    # Fidelity is `full` so the shot keeps the PHASE row and the RESULT table
+    # (the failed PreSync hook) alongside the retry message.
+    wait_until: load
+    fidelity: full
     highlight:
       intent: "retry attempt message"
-      selector: ".application-operation-state"
+      selector: ".sliding-panel__body .white-box__details-row:has(pre)"
 
   # --- Capstone (only SS-CAP-01/02/03 appear in the capstone guide) ---------
   - id: SS-CAP-01

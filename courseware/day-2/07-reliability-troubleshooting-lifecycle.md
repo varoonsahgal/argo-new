@@ -163,10 +163,10 @@ An incident is an invisible process: data is flowing (or failing to flow) throug
 **The debrief.** Notice three things about the shape:
 
 1. **Steps 1 and 2 establish trust in the *desired* side before any comparison.** Step 1 confirms Argo CD is looking at the Git revision you think it is; step 2 confirms that revision can be reached and rendered into YAML at all. Only then does step 3's diff carry meaning.
-2. **Step 3 is the hinge.** `argocd app diff` compares rendered desired state against live cluster state and returns a telling exit code: **0** means no difference, **1** means a real difference was found, **2** means it could not complete the comparison (an error). That exit code alone routes you: a `2` sends you *back* to steps 1–2 (the desired side is broken); a `1` sends you *forward* to step 4 (the diff is real; why did applying it not happen?).
+2. **Step 3 is the hinge.** `argocd app diff` compares rendered desired state against live cluster state and returns a telling exit code: **0** means no difference, **1** means a real difference was found, **2** means it could not complete the comparison (an error). That exit code alone routes you: a `2` sends you *back* to steps 1–2 (the desired side is broken); a `1` sends you *forward* to step 4 (the diff is real; why did applying it not happen?). One honest caveat you will see for yourself in Section 5: a `1` does **not** always mean the difference is trustworthy. If the desired side rendered to *nothing*, the diff completes and exits **1** while showing every resource as though it were being deleted. That is exactly why steps 1 and 2 come first.
 3. **You do not touch a component until step 5.** Steps 1–4 are pure evidence — reading, never changing. Step 5 is the first place you open a component's logs or measure its resource use, and you only get there once steps 1–4 have *told you which component*. Step 6 is where the first change happens, and it happens **in Git**, then flows back through the whole pipeline so you can verify the fix converged.
 
-**Prediction answer:** with every app `Unknown` but logins working, the first station to lie is most likely **step 2 or step 3** — a shared rendering or comparison failure that hits every Application at once, while the responsive UI *clears* the API server (its verb, *talks*, is working fine). "Every app at once" always points at a **shared** dependency, never at one app's Git source. The command that would prove it is `argocd app diff <app>` returning exit code **2** (a comparison error), which you would then trace back through `argocd app manifests <app> --source git` and, if the source is unreachable, `argocd repo list`. That is precisely the incident we walk next.
+**Prediction answer:** with every app `Unknown` but logins working, the first station to lie is most likely **step 2 or step 3** — a shared rendering or comparison failure that hits every Application at once, while the responsive UI *clears* the API server (its verb, *talks*, is working fine). "Every app at once" always points at a **shared** dependency, never at one app's Git source. The command that proves it is `argocd app get <app>`, whose `CONDITION` block names a `ComparisonError` and prints the underlying network or rendering error in plain text; you confirm it at the repository level with `argocd repo list --refresh hard`, which re-tests the connection instead of reporting a cached one. That is precisely the incident we walk next.
 
 ---
 
@@ -174,7 +174,7 @@ An incident is an invisible process: data is flowing (or failing to flow) throug
 
 Let us take a single, complete incident and walk it end to end, running the exact evidence command at each station. This incident's root cause is **the Git repository became unreachable** — a cause chosen deliberately because it is *not* one of the capstone's faults, so working through it here spoils nothing you will face later.
 
-**The symptom.** At 09:05, `storefront-dev-workload` (and, it turns out, every app that sources from the same repository) shows a red status. Someone wants to restart the repo-server. You do not. You walk the pipeline.
+**The symptom.** At 09:05, `storefront-dev-workload` (and, it turns out, every app that sources from that same Git server) shows a red status. Someone wants to restart the repo-server. You do not. You walk the pipeline.
 
 ### Step 1 — Validate the Git source and revision
 
@@ -184,78 +184,123 @@ You start where the data starts. What repository, path, and revision is this App
 argocd app get storefront-dev-workload
 ```
 
-Representative output — the fields that matter are the source block and the revision:
+Here is the real output from this course's own cluster during the incident. The fields that matter are the **source block**, the **status lines**, and the **`CONDITION` block** at the bottom:
 
 ```text
 Name:               argocd/storefront-dev-workload
 Project:            storefront
+Server:             https://k3d-workload-server-0:6443
+Namespace:          storefront-dev
+URL:                https://localhost:8443/applications/storefront-dev-workload
 Source:
-- Repo:             https://gitea.lab.example/platform/storefront-gitops.git
+- Repo:             http://lab-gitea:3000/course/storefront-gitops.git
   Target:           main
-  Path:             envs/dev
-Sync Status:        Unknown (ComparisonError)
-Health Status:      Unknown
+  Path:             charts/storefront
+  Helm Values:      ../../envs/dev/values.yaml
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Unknown
+Health Status:      Healthy
+
+CONDITION        MESSAGE                                                        LAST TRANSITION
+ComparisonError  Failed to load target state: failed to generate manifest for   2026-09-12 13:14:25 -0400 EDT
+                 source 1 of 1: rpc error: code = Unknown desc = failed to
+                 list refs: Get "http://lab-gitea:3000/course/storefront-
+                 gitops.git/info/refs?service=git-upload-pack": dial tcp
+                 172.20.0.2:3000: connect: no route to host
+
+GROUP  KIND        NAMESPACE       NAME                  STATUS     HEALTH   HOOK     MESSAGE
+batch  Job         storefront-dev  storefront-migration  Succeeded  Synced   PreSync  Reached expected number of succeeded pods
+       ConfigMap   storefront-dev  storefront            Unknown                      configmap/storefront unchanged
+       Service     storefront-dev  storefront            Unknown    Healthy           service/storefront unchanged
+apps   Deployment  storefront-dev  storefront            Unknown    Healthy           deployment.apps/storefront unchanged
 ```
 
-The declared source looks correct — the repository URL, the `main` branch, and the `envs/dev` path are what you expect. Now confirm the revision is actually resolvable from outside Argo CD, using plain Git against the same URL:
+*(The `CONDITION` message is one very long single line in a real terminal; it is wrapped across five lines above so it fits this page.)*
+
+Three things to read off this, in order:
+
+- **The declared source looks correct.** The repository URL, the `main` branch, the `charts/storefront` chart path, and the `../../envs/dev/values.yaml` values file are exactly what you expect. Nobody edited the Application.
+- **`Sync Status: Unknown`, but `Health Status: Healthy`.** Argo CD is telling you it cannot *evaluate* the app — and, separately, that the workload it last deployed is still running fine. Those are two different questions, and only one of them is broken.
+- **The `CONDITION` block already names the cause.** Argo CD is not hiding anything: it could not list refs on the Git repository because the connection was refused. You have a very strong hypothesis after one command.
+
+Now confirm the repository is unreachable from outside Argo CD too, using plain Git against the same URL:
 
 ```bash
-git ls-remote https://gitea.lab.example/platform/storefront-gitops.git main
+git ls-remote http://lab-gitea:3000/course/storefront-gitops.git main
 ```
 
-If Git is healthy you would see a commit hash next to `refs/heads/main`. Instead:
+If Git is healthy you see a commit hash next to `refs/heads/main`, like this:
 
 ```text
-fatal: unable to access 'https://gitea.lab.example/platform/storefront-gitops.git/': Could not resolve host
+cbeba814dc4f10b45548c6f0806308a11796747f	refs/heads/main
 ```
 
-That is your first lie — but be disciplined and note *what it tells you and what it does not*. It tells you the repository is unreachable **from where you are standing**. It does not yet prove Argo CD's repo-server sees the same thing. So you continue to step 2 to confirm the failure is where you think it is.
+During the incident you get this instead (and `git` exits with code `128`):
+
+```text
+fatal: unable to access 'http://lab-gitea:3000/course/storefront-gitops.git/': Failed to connect to lab-gitea port 3000 after 3112 ms: Could not connect to server
+```
+
+That is your first lie — but be disciplined and note *what it tells you and what it does not*. The name `lab-gitea` still resolved (there is no "could not resolve host" here), so this is not a DNS failure; the **server behind the name is not answering**. And it tells you that only **from where you are standing** — it does not by itself prove Argo CD's repo-server sees the same thing. So you continue to step 2 to confirm the failure is where you think it is.
 
 ### Step 2 — Validate repository access and manifest rendering
 
-Ask Argo CD's own view of the repository connection, then ask it to render:
+Ask Argo CD's own view of the repository connection. There is a trap in this command that is worth meeting now rather than during an incident: a bare `argocd repo list` reports a **cached** connection status, so during a live outage it can still print `Successful`. Add `--refresh hard` to force Argo CD to actually re-test the connection:
 
 ```bash
-argocd repo list
+argocd repo list --refresh hard
 ```
 
 ```text
-TYPE  NAME  REPO                                                        STATUS      MESSAGE
-git         https://gitea.lab.example/platform/storefront-gitops.git    Failed      Unable to connect: dial tcp: lookup gitea.lab.example: no such host
+TYPE  NAME  REPO                                                INSECURE  OCI    LFS    CREDS  STATUS  MESSAGE
+git         http://lab-gitea:3000/course/storefront-gitops.git  false     false  false  false  Failed  Unable to connect to repository: rpc error: code = Unknown desc = error testing repository connectivity: unable to ls-remote HEAD on repository: failed to list refs: Get "http://lab-gitea:3000/course/storefront-gitops.git/info/refs?service=git-upload-pack": dial tcp 172.20.0.2:3000: connect: no route to host
 ```
 
-`STATUS: Failed` on the repository is the confirmation. To see how the failure surfaces at render time, ask for the rendered manifests from Git:
+*(There is also a `PROJECT` column after `MESSAGE`; it is empty here and the very long message pushes it off the page.)*
+
+`STATUS: Failed` on the repository is the confirmation, and the message is the same connection failure the Application's condition reported. Now see how the failure surfaces at **render** time, by asking for the manifests Argo CD would generate from Git:
 
 ```bash
 argocd app manifests storefront-dev-workload --source git
 ```
 
 ```text
-FATA[0002] rpc error: code = Unknown desc = failed to get git client for repo
-https://gitea.lab.example/platform/storefront-gitops.git: ... no such host
+---
+null
+
+---
+null
+
+---
+null
+
 ```
+
+Read that carefully, because it is the most easily missed evidence in this whole walkthrough. The command **did not fail** — it exits `0` and prints three empty YAML documents, one per managed resource. Argo CD could not render anything, so "everything" is `null`. **A quiet, empty answer is still a lie at station 2**, and it is the direct cause of the strange thing you are about to see at station 3.
 
 The **repo-server** cannot render because it cannot reach the source. The picture below is what this looks like in the UI — a `ComparisonError` condition on the Application, which is Argo CD saying "I could not complete step 2/3."
 
-![Argo CD Application detail for storefront-dev-workload in v3.5.2 showing an Unknown sync status and a ComparisonError condition whose message states the Git repository host could not be resolved.](../assets/screenshots/day-2/s07-01-repo-unreachable.png)
+![Argo CD v3.5.2 Application conditions panel for storefront-dev-workload, showing a single ComparisonError whose message reports that generating the manifest failed because listing refs on the Git repository returned a connection error.](../assets/screenshots/day-2/s07-01-repo-unreachable.png)
 
-*Argo CD v3.5.2 — the `storefront-dev-workload` Application detail (`/applications/storefront-dev-workload`), logged in as admin, after the Git server was made unreachable and the app was hard-refreshed. The failure surfaces as a `ComparisonError`, not a `Degraded` workload.*
+*Argo CD v3.5.2 — the **Application conditions** panel for `storefront-dev-workload`, logged in as admin, after the Git server was made unreachable and the app was hard-refreshed. You open this panel by clicking the red **APP CONDITIONS — 1 Error** item in the Application's status bar. Behind the panel, that same status bar reads **APP HEALTH: Healthy** and **LAST SYNC: Sync OK** — the failure surfaces as a `ComparisonError`, not as a `Degraded` workload.*
 
 <!-- CAPTURE-SPEC: SS-S7-01 — Application ComparisonError from an unreachable repo.
-Source: live capture only, course Argo CD v3.5.2 at https://localhost:8443, harness state CP-lab-05, logged in as admin.
-Steps: (1) log in as admin; (2) make Git unreachable with `docker stop lab-gitea`; (3) open /applications/storefront-dev-workload; (4) click Refresh (hard refresh) so the condition re-evaluates; (5) restart Git afterward with `docker start lab-gitea` to leave the environment healthy.
-Capture: full page, viewport 1440x900, light theme, 100% zoom, PNG. Highlight the .application-conditions panel showing the ComparisonError condition and its host-resolution message.
+Source: CAPTURED LIVE from this course's Argo CD v3.5.2 at https://localhost:8443 (lab-tester, 2026-09-12), harness state CP-capstone, logged in as admin.
+Steps: (1) log in as admin; (2) make Git unreachable with `docker stop lab-gitea`; (3) `argocd app get storefront-dev-workload --hard-refresh` so the condition re-evaluates; (4) open /applications/storefront-dev-workload and click the APP CONDITIONS item; (5) restart Git afterward with `docker start lab-gitea` to leave the environment healthy.
+Capture: full viewport 1440x900, light theme, PNG. Highlight the conditions row (.application-conditions__condition) showing the ComparisonError and its connection-failure message.
+Note: the real message is a TCP connection failure ("no route to host"), not a DNS "could not resolve host" error, because the recipe stops the Git server rather than removing its DNS record.
 Save to: courseware/assets/screenshots/day-2/s07-01-repo-unreachable.png -->
 
 **What to notice:**
 
-1. **The status is `Unknown`/`ComparisonError`, not `Degraded`.** A `ComparisonError` means Argo CD could not *evaluate* the app — it is a step 1–3 failure (source/render/compare), a completely different place from a workload that is running but sick. Reading that distinction off the badge is most of triage.
-2. **The condition message names the cause in plain text.** It says the host could not be resolved. Argo CD is not hiding the reason; the method is largely about *going to the place that prints the reason.*
-3. **This is a shared-dependency failure.** Every Application that sources from this repository shows the same condition at the same time — which is the signature of a source/render problem, never a single app's bug.
+1. **The status is `Unknown`/`ComparisonError`, not `Degraded` — and the health badge still says `Healthy`.** A `ComparisonError` means Argo CD could not *evaluate* the app: a step 1–3 failure (source/render/compare), a completely different place from a workload that is running but sick. The deployed Pods are untouched, so the health badge is telling the truth. Reading that distinction is most of triage.
+2. **The condition message names the cause in plain text.** It says, in one sentence, that generating the manifest failed because it could not list refs on that repository over TCP. Argo CD is not hiding the reason; the method is largely about *going to the place that prints the reason.*
+3. **This is a shared-dependency failure.** Every Application that sources from this Git server shows the same condition at the same time — which is the signature of a source/render problem, never a single app's bug.
 
 ### Step 3 — Compare rendered state with live cluster state
 
-Normally this is the hinge step. Here, you already know it cannot complete, and running it confirms exactly that:
+This is the hinge step, and this incident produces the single most important surprise in the whole walkthrough. Run it:
 
 ```bash
 argocd app diff storefront-dev-workload
@@ -263,39 +308,88 @@ echo "exit code: $?"
 ```
 
 ```text
-Error: rpc error: code = Unknown desc = ComparisonError: failed to get git client for repo ...
-exit code: 2
+
+===== /ConfigMap storefront-dev/storefront ======
+1,39d0
+< apiVersion: v1
+< data:
+<   PODINFO_UI_COLOR: '#2da44e'
+<   PODINFO_UI_MESSAGE: storefront DEV
+< kind: ConfigMap
+< metadata:
+<   annotations:
+
+===== /Service storefront-dev/storefront ======
+1,62d0
+< apiVersion: v1
+< kind: Service
+
+===== apps/Deployment storefront-dev/storefront ======
+1,203d0
+< apiVersion: apps/v1
+< kind: Deployment
+exit code: 1
 ```
 
-Exit code **2** — "could not complete the comparison" — not **1** ("found a real difference"). The pipeline is telling you the *desired* side is missing, so there is nothing to compare. This is the fork in the road: a `2` means **do not go looking at sync results or the cluster yet**; the problem is upstream, at the source. You have now localized the failure to steps 1–2 without changing anything.
+*(The full output is 313 lines; the first few lines of each of the three sections are shown.)*
+
+**Stop and read what that actually says.** Every single line is prefixed with `<` — there is not one `>` line in all 313 — and the three diff headers read `1,39d0`, `1,62d0`, and `1,203d0`, which in diff notation means "lines 1 through N of the live object, **deleted**, leaving nothing." Taken at face value, this diff says: *Git wants the ConfigMap, the Service, and the Deployment all gone.*
+
+It does not. The desired side is empty — exactly the three `null` documents you saw at station 2 — so the diff is comparing a real live cluster against **nothing**, and an empty desired state looks identical to a deliberate deletion. The exit code is **1** ("a real difference was found"), not **2** ("could not complete the comparison"), because from the differ's point of view the comparison completed perfectly well. (The documented exit codes are unchanged and worth memorizing: `argocd app diff --help` states *"2 on general errors, 1 when a diff is found, and 0 when no diff is found"*.)
+
+This is the whole reason **source before platform** is a rule and not a preference. An operator who skipped straight to step 3 would be looking at a diff that appears to demand deleting the entire application — and this Application has **automated sync with prune enabled**. Acting on this diff, or "just syncing to make it green," is how a source-reachability incident becomes a deleted production workload.
+
+Because you did steps 1 and 2 first, you already know the desired side is missing, so you read this diff correctly: **there is nothing to compare, and the problem is upstream.** You have localized the failure to steps 1–2 without changing anything.
 
 ### Step 4 — Inspect synchronization results, hooks, events, and Kubernetes health
 
-You still glance at step 4, briefly, to rule out a coincidental second problem and to confirm the live workload is *not* itself broken:
+You still glance at step 4, briefly, to rule out a coincidental second problem and to confirm the live workload is *not* itself broken.
+
+One detail matters enormously here and is easy to get wrong under pressure: **the workload's Pods and events live on the *workload* cluster, not on the management cluster where Argo CD runs.** Your `kubectl` context defaults to the management cluster (`k3d-mgmt`), so you must name the other cluster explicitly with `--context k3d-workload`. Run it without that flag and you get `No resources found in storefront-dev namespace.` — which would wrongly convince you the whole application had vanished.
 
 ```bash
 argocd app get storefront-dev-workload
-kubectl -n storefront-dev get events --sort-by=.lastTimestamp | tail -10
+kubectl --context k3d-workload -n storefront-dev get pods
+kubectl --context k3d-workload -n storefront-dev get events --sort-by=.lastTimestamp | tail -6
 ```
 
-The live Pods are running and their events are quiet — no crash loops, no failed hooks. That matters: **the workload is fine; only Argo CD's ability to evaluate it is broken.** If you had panicked and "rolled back" or "restarted the app," you would have damaged a perfectly healthy running service to fix a *source-reachability* problem. Step 4 is what stops that mistake.
+```text
+NAME                          READY   STATUS      RESTARTS   AGE
+storefront-75cddb6b87-wbjbg   1/1     Running     0          24h
+storefront-migration-p84wv    0/1     Completed   0          5m6s
+```
+
+```text
+19m         Normal   Completed          job/storefront-migration         Job completed
+5m6s        Normal   Pulled             pod/storefront-migration-p84wv   Container image "busybox:1.37.0" already present on machine and can be accessed by the pod
+5m6s        Normal   Created            pod/storefront-migration-p84wv   Container created
+5m6s        Normal   Started            pod/storefront-migration-p84wv   Container started
+5m6s        Normal   SuccessfulCreate   job/storefront-migration         Created pod: storefront-migration-p84wv
+5m1s        Normal   Completed          job/storefront-migration         Job completed
+```
+
+*(The `tail -6` drops `kubectl`'s header row. The columns are, left to right: `LAST SEEN`, `TYPE`, `REASON`, `OBJECT`, `MESSAGE`.)*
+
+Read the `TYPE` column: every event is `Normal`. The application Pod has been `Running` for a day with zero restarts, and the only recent activity is a PreSync migration Job that completed successfully. No crash loops, no failed hooks, nothing `Warning`. That matters: **the workload is fine; only Argo CD's ability to evaluate it is broken.** If you had panicked and "rolled back" or "restarted the app" — or synced that deletion-shaped diff from step 3 — you would have damaged a perfectly healthy running service to fix a *source-reachability* problem. Step 4 is what stops that mistake.
 
 > **A different-looking symptom, a different cause.** Not every red badge is a `ComparisonError`. The screenshot below shows an operation stuck in a **retrying** state — the app rendered and compared fine, a sync *started*, and something in the apply or a hook keeps failing so Argo CD keeps retrying. That is a step 4 story (sync results and hooks), not a step 2 story (rendering). Learning to tell "never started" from "started and retrying" apart is exactly the skill step 4 builds.
 
-![Argo CD Application operation panel in v3.5.2 showing a sync operation in a retrying state, with a message reporting the current retry attempt after a failed hook.](../assets/screenshots/day-2/s07-02-sync-retrying.png)
+![Argo CD v3.5.2 operation-state panel showing a Sync operation whose phase is Running and whose message reads that one or more synchronization tasks completed unsuccessfully and it is retrying attempt number two, with a RESULT table below listing a failed PreSync hook Job.](../assets/screenshots/day-2/s07-02-sync-retrying.png)
 
-*Argo CD v3.5.2 — the operation-state panel of a scratch Application configured with a retry policy and a deliberately failing sync hook. The sync **started** and is **retrying**, which is a fundamentally different situation from a `ComparisonError`.*
+*Argo CD v3.5.2 — the operation-state panel of a throwaway Application configured with a retry policy and a deliberately failing PreSync hook. `PHASE` is **Running** and the highlighted `MESSAGE` row reads "one or more synchronization tasks completed unsuccessfully. Retrying attempt #2 at 5:25PM." The `RESULT` table below shows the culprit: the `PreSync` hook Job `s07-failing-presync` is `Failed` with "Job has reached the specified backoff limit." The sync **started** and is **retrying**, which is a fundamentally different situation from a `ComparisonError`.*
 
 <!-- CAPTURE-SPEC: SS-S7-02 — Operation "retrying" state.
-Source: live capture only, course Argo CD v3.5.2, harness: a scratch Application with syncPolicy.retry set and a PreSync hook that exits non-zero.
-Steps: (1) log in as admin; (2) create the scratch Application with a failing PreSync hook and a retry policy (limit 5, backoff); (3) trigger a sync; (4) open /applications/scratch-retry while the operation is between attempts.
-Capture: panel only (.application-operation-state), viewport 1440x900, light theme, PNG. Highlight the operation phase "Running/Retrying" and the "Retrying attempt N" message.
+Source: CAPTURED LIVE from this course's Argo CD v3.5.2 at https://localhost:8443 (lab-tester, 2026-09-12), logged in as admin.
+Harness: a THROWAWAY Application `scratch-retry` (project default, destination in-cluster namespace s07-scratch, CreateNamespace=true) sourcing a temporary Gitea repo that holds one ConfigMap and one PreSync hook Job which exits 1 with backoffLimit 0.
+Steps: (1) log in as admin; (2) apply the throwaway Application; (3) `argocd app sync scratch-retry --async --retry-limit 5 --retry-backoff-duration 45s`; (4) open /applications/scratch-retry?operation=true during a backoff window; (5) afterwards terminate the operation, delete the Application and the namespace, and delete the temporary repo so nothing course-owned is touched.
+Capture: full viewport 1440x900, light theme, PNG. Highlight the operation summary's MESSAGE row (the single `.sliding-panel__body .white-box__details-row:has(pre)`).
+Note: v3.5.2 has no `.application-operation-state` element; the panel opens from the `?operation=true` query parameter.
 Save to: courseware/assets/screenshots/day-2/s07-02-sync-retrying.png -->
 
 **What to notice:**
 
-1. **The operation exists.** There is a sync *operation* with a phase and a retry count — which by itself proves rendering and comparison already succeeded. Contrast that with SS-S7-01, where there was no operation at all because the app never got past the comparison.
-2. **"Retrying" is not "failed forever."** Argo CD is honoring a retry policy. The evidence to read next is *why each attempt fails* (the hook or the applied resource), not the retry count itself.
+1. **The operation exists.** There is a sync *operation* with `OPERATION: Sync`, `PHASE: Running`, a start time, and a duration — which by itself proves rendering and comparison already succeeded. Contrast that with SS-S7-01, where there was no operation at all because the app never got past the comparison.
+2. **"Retrying" is not "failed forever."** The phase is `Running`, not `Failed`: Argo CD is honoring a retry policy and will try again at the stated time. The evidence to read next is *why each attempt fails*, and the `RESULT` table answers it directly — the `PreSync` hook Job failed. Read that, not the retry count.
 3. **This lives in a different panel than the condition in SS-S7-01.** Sync/operation results and comparison errors are two different surfaces because they come from two different steps of the method. Knowing which panel to open is knowing which step you are on.
 
 ### Step 5 — Inspect the responsible component and its metrics
@@ -303,21 +397,32 @@ Save to: courseware/assets/screenshots/day-2/s07-02-sync-retrying.png -->
 Steps 1–4 have already named the suspect: the **repo-server**, because rendering is where the failure surfaced. *Now* — and only now — you open a component's logs and check its resource use:
 
 ```bash
-kubectl -n argocd logs deploy/argocd-repo-server --tail=20
-kubectl top pod -n argocd
+kubectl --context k3d-mgmt -n argocd logs deploy/argocd-repo-server --tail=20
+kubectl --context k3d-mgmt top pod -n argocd
 ```
 
-Representative `kubectl top` output (from this course's own cluster) shows the repo-server is *not* under resource pressure — modest CPU and memory:
+The `logs` command first prints a harmless one-line notice — `Defaulted container "repo-server" out of: repo-server, copyutil (init)` — because that Pod has an init container as well. Then the logs echo the exact same connection failure you have now seen three times. Each log line is a long single line of structured fields; here is one real line from the tail, wrapped, with the trailing gRPC bookkeeping fields cut at `[...]`:
+
+```text
+time="2026-09-12T17:16:44Z" level=error msg="finished call" grpc.code=Unknown
+grpc.component=server grpc.error="failed to list refs: Get \"http://lab-gitea:3000/
+course/storefront-gitops.git/info/refs?service=git-upload-pack\": dial tcp
+172.20.0.2:3000: connect: no route to host" grpc.method=GenerateManifest [...]
+```
+
+Now the resource picture. Real `kubectl top` output from this course's own cluster (your exact numbers will differ — they move with lab state and how recently the pods restarted):
 
 ```text
 NAME                                                CPU(cores)   MEMORY(bytes)
-argocd-application-controller-0                     40m          144Mi
-argocd-repo-server-67c646f488-hjtgc                 2m           35Mi
+argocd-application-controller-0                     8m           247Mi
+argocd-applicationset-controller-5fb8c665fd-v97s8   2m           82Mi
+argocd-notifications-controller-7797558c68-bx7j9    1m           33Mi
 argocd-redis-56d6bd8bb7-5bj6r                       4m           12Mi
-argocd-server-7d7fc8c87b-cpd6z                      2m           44Mi
+argocd-repo-server-dcb4fdc54-cscjj                  1m           46Mi
+argocd-server-779878f878-plvdg                      5m           67Mi
 ```
 
-This is an important negative result: the repo-server is **healthy and idle**, not **OOMKilled** (Out Of Memory Killed — what Kubernetes does to a pod that tries to use more memory than its limit allows: it terminates the process, and you see the word `OOMKilled` in `kubectl describe pod`), not throttled. That rules out "the repo-server is broken" and confirms "the repo-server is fine but cannot *reach* Git." The logs echo the same host-resolution error. Restarting the repo-server — the very first thing someone wanted to do at 09:05 — would have changed **nothing**, because the pod was never the problem. The evidence saved you a pointless restart and pointed at the real fix.
+This is an important negative result: the repo-server is **healthy and idle** at 1 millicore of CPU and 46 MiB of memory — not **OOMKilled** (Out Of Memory Killed — what Kubernetes does to a pod that tries to use more memory than its limit allows: it terminates the process, and you see the word `OOMKilled` in `kubectl describe pod`), not throttled, and with no restarts. That rules out "the repo-server is broken" and confirms "the repo-server is fine but cannot *reach* Git." Restarting the repo-server — the very first thing someone wanted to do at 09:05 — would have changed **nothing**, because the pod was never the problem. The evidence saved you a pointless restart and pointed at the real fix.
 
 ### Step 6 — Correct the declarative source and verify reconciliation
 
@@ -328,7 +433,21 @@ argocd app get storefront-dev-workload
 argocd app history storefront-dev-workload
 ```
 
-You are looking for the status to return to `Synced`/`Healthy` and for the history to show the app tracking the expected revision again. **Verification is not optional and it is not "looks green to me."** You confirm with the same evidence you diagnosed with, which closes the loop: source → render → compare → apply → healthy. Only when `argocd app get` reports `Synced`/`Healthy` is the incident actually over.
+Once the Git server was reachable again, the same two commands returned this (the two status lines from `argocd app get`, then the last line of `argocd app history`):
+
+```text
+Sync Status:        Synced to main (cbeba81)
+Health Status:      Healthy
+```
+
+```text
+SOURCE  http://lab-gitea:3000/course/storefront-gitops.git
+ID      DATE                           REVISION
+...
+10      2026-09-12 13:10:55 -0400 EDT  main (cbeba81)
+```
+
+The `CONDITION` block is gone entirely — conditions clear themselves once the comparison succeeds — and the history's newest entry names the same revision the status line reports. You are looking for exactly that pair: the status back to `Synced`/`Healthy`, and the history showing the app tracking the expected revision again. **Verification is not optional and it is not "looks green to me."** You confirm with the same evidence you diagnosed with, which closes the loop: source → render → compare → apply → healthy. Only when `argocd app get` reports `Synced`/`Healthy` is the incident actually over.
 
 **The through-line:** six steps, six evidence commands, and the first destructive action you took was the fix. That is the entire method, and it is the entire capstone.
 
@@ -399,15 +518,17 @@ The operator's takeaway is diagnostic, not a tuning cookbook: when the repo-serv
 
 You cannot operate what you cannot see. In production, Argo CD's metrics are usually scraped by **Prometheus** (a metrics database) and drawn on **Grafana** dashboards. This course has **no Prometheus/Grafana stack**, so you read the same numbers two more direct ways, which is also exactly how you confirm things during an incident:
 
-- **`kubectl top pod -n argocd`** for live CPU and memory of each component — the fastest way to spot a pod under pressure (you used it in step 5).
+- **`kubectl --context k3d-mgmt top pod -n argocd`** for live CPU and memory of each component — the fastest way to spot a pod under pressure (you used it in step 5).
 - **The component metrics endpoints**, which every component exposes for scraping and you can read directly. The application-controller serves metrics on port `8082`, the API server on `8083`, and the repo-server on `8084`. You reach one with a port-forward and a plain HTTP request:
 
   ```bash
-  kubectl -n argocd port-forward deploy/argocd-repo-server 8084:8084 &
+  kubectl --context k3d-mgmt -n argocd port-forward deploy/argocd-repo-server 8084:8084 &
   curl -s http://localhost:8084/metrics | grep -E '^argocd_'
   ```
 
-- **Kubernetes events** (`kubectl -n <ns> get events`) for what actually happened to the applied resources — the workload-side truth behind a sync result.
+  That prints roughly 120–160 lines on this lab's cluster, all of them Argo CD's own metric series — for example `argocd_git_request_duration_seconds_*`, labelled with the repository and the request type (`ls-remote`, `fetch`). Stop the port-forward afterwards by bringing it to the foreground with `fg` and pressing `Ctrl-C`.
+
+- **Kubernetes events** (`kubectl --context k3d-workload -n <ns> get events`) for what actually happened to the applied resources — the workload-side truth behind a sync result. Name the **workload** context: the applied resources live there, not on the management cluster.
 - **The notifications-controller** for *outbound* signals: it watches Application state and sends Slack/email/webhook messages on triggers you define. Notifications are how a human finds out at 09:05 without staring at the UI.
 
 The most useful observability lesson is about **alert design, not metric names.** The obvious alert — "an Application is `OutOfSync`" — is the *wrong* one: it fires constantly (someone committed forty seconds ago), most firings are benign, and teams mute it within a week. The alert that carries information is **compound**: an Application has been `OutOfSync` **and** has automated sync enabled **and** has not converged for N minutes. *That* means reconciliation itself is stuck, which is always worth waking someone for. On the metrics side, the reconciliation-duration metric (`argocd_app_reconcile`) is designed to be read as a heat map — a distribution drifting toward longer times is an early warning that arrives *before* any Application turns red. **Alert on failure to converge, not on `OutOfSync`.**
@@ -626,15 +747,17 @@ argocd admin export -n argocd > backup.yaml
 grep -E '^kind:' backup.yaml | sort | uniq -c
 ```
 
-Representative output (your exact counts will differ depending on how many Applications and projects exist in your current lab state):
+Here is the real output from a course environment at the end of Day 2. Your exact counts will differ depending on how many Applications and projects exist in your current lab state, and `sort` puts the kinds in alphabetical order:
 
 ```text
-   5 kind: Secret
+   4 kind: AppProject
+   8 kind: Application
+   1 kind: ApplicationSet
    4 kind: ConfigMap
-   3 kind: AppProject
+   5 kind: Secret
 ```
 
-When Applications and ApplicationSets exist, you will also see `kind: Application` and `kind: ApplicationSet`. Now reflect on what the list *is*:
+That file was about 85 KB (`wc -c backup.yaml` reported 86,782 bytes). Now reflect on what the list *is*:
 
 - The **ConfigMaps** are Argo CD's configuration (`argocd-cm`, `argocd-rbac-cm`, and friends).
 - The **AppProjects**, **Applications**, and **ApplicationSets** are your declared desired state — the parts that *should* also live in Git.
@@ -646,7 +769,13 @@ Clean up when you are done (this removes the file you created):
 rm -f backup.yaml
 ```
 
-**Note:** passing `-n argocd` matters — it points the export at the namespace where Argo CD's objects live. Argo CD will not error if you point it at the wrong namespace; it will export nothing useful, which is a quieter failure than a loud one.
+**Note:** passing `-n argocd` matters — it points the export at the namespace where Argo CD's objects live. Point it somewhere else and the command fails loudly rather than silently writing a useless file. Pointing it at `kube-system`, for example, produces this and exits with code `20`, leaving a zero-byte output file:
+
+```text
+{"level":"fatal","msg":"configmaps \"argocd-cmd-params-cm\" not found","time":"2026-09-12T13:34:27-04:00"}
+```
+
+That is a helpful failure: the export refuses to run at all unless it can find Argo CD's own configuration in the namespace you named. If you ever see a backup file that is suspiciously small, check its size before you trust it — `wc -c backup.yaml` costs nothing.
 
 ---
 
