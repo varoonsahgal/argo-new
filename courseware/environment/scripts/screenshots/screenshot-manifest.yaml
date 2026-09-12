@@ -924,13 +924,24 @@ shots:
     filename: day-2/lab-05-06-kubernetes-forbidden.png
     app: argocd
     auth: admin
-    route: /applications/team-a-guestbook
-    state: "Sync result for the network-policy attempt"
-    produced_by: "lab-05 E4 part b"
-    fidelity: panel
+    route: /applications/team-a-netpol
+    state: "Last-sync operation panel for the NetworkPolicy attempt"
+    produced_by: "lab-05 E4 part b (throwaway team-a-netpol, path attempts/network-policy, after sync)"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-12). Fence 3: the sync runs
+    # and then fails. Phase Failed, message "one or more objects failed to
+    # apply, reason: networkpolicies.networking.k8s.io is forbidden: User
+    # \"system:serviceaccount:argocd-access:argocd-manager\" ...". The LAST SYNC
+    # link reads "Sync failed" here (an AppProject/comparison refusal instead
+    # reads "Sync error" -- see SS-L5-04).
+    wait_until: load
+    actions:
+      - click: '.application-status-panel__item:has-text("LAST SYNC") >> text=Sync failed'
+      - wait_for: ".sliding-panel--opened .white-box__details-row"
+      - wait_ms: 800
+    fidelity: full
     highlight:
-      intent: "forbidden ... system:serviceaccount:argocd-access:argocd-manager"
-      selector: ".application-operation-state"
+      intent: "Phase Failed and the Kubernetes forbidden message naming the ServiceAccount"
+      selector: ".sliding-panel--opened .white-box__details-row:nth-child(2), .sliding-panel--opened .white-box__details-row:nth-child(3)"
 
   - id: SS-L5-07
     guide: lab-05
@@ -938,12 +949,29 @@ shots:
     app: argocd
     auth: team-a-dev
     route: /applications/team-a-guestbook
-    state: "Delete attempt as team-a-dev"
-    produced_by: "lab-05 E5"
-    fidelity: panel
+    state: "Delete dialog + permission-denied toast, as team-a-dev"
+    produced_by: "lab-05 E5 (team-a-dev clicks DELETE on team-a-guestbook and confirms)"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-12). Because team-a-dev CAN
+    # get this app, the denial is the detailed form: "permission denied:
+    # applications, delete, team-a/team-a-guestbook, sub: team-a-dev, iat: ...".
+    # (Deleting a storefront app instead returns only "permission denied",
+    # because the get check fails first.) The dialog's propagation-policy radio
+    # buttons - Foreground / Background / Non-cascading - are the cascade point
+    # E5 part C discusses. The toast auto-closes; it is captured immediately.
+    wait_until: load
+    actions:
+      - click: "text=DELETE"
+      - wait_for: ".argo-field"
+      - fill: ".argo-field"
+        value: team-a-guestbook
+      - wait_ms: 500
+      - click: 'button:has-text("OK")'
+      - wait_for: ".Toastify__toast--error"
+      - wait_ms: 500
+    fidelity: full
     highlight:
-      intent: "permission denied"
-      selector: ".notifications-container"
+      intent: "permission-denied toast naming applications, delete, team-a/team-a-guestbook"
+      selector: ".Toastify__toast--error"
 
   # --- Guide 07 (spoiler rule: causes differ from capstone faults) ----------
   - id: SS-S7-01
