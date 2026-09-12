@@ -18,7 +18,7 @@
 > | **Required path total** | **~46 min** |
 > | Section 11 stretch challenges (optional, outside the clock) | +10–25 min |
 >
-> Budget closer to **50 minutes** if this is your first time writing an AppProject from a specification. Each time you apply Argo CD configuration you are logged out and log in again, which costs about a minute per apply; the guide tells you exactly where that happens.
+> Budget closer to **50 minutes** if this is your first time writing an AppProject from a specification. The two Argo CD configuration applies in this lab normally leave your logged-in session alone, so no time is reserved for re-logging in; Section 6.2 covers the one case where a re-login is needed.
 >
 > **What you need open before you start:**
 > - your SSH (Secure Shell) session to the VM (virtual machine), from the student setup guide,
@@ -123,8 +123,23 @@ Four things to carry from this diagram, because the exercises are built on them:
 
 1. **Fences 1, 2 and 2b live inside Argo CD.** They refuse without ever touching the workload cluster.
 2. **Fence 3 lives on the workload cluster.** It refuses *after* the sync has begun applying manifests, so you see a sync that started and then failed with a `forbidden` message naming a ServiceAccount.
-3. **The fast question is "did the sync start?" — the *reliable* tell is "did anything get applied?"** Argo CD will happily record a sync operation for a request that fence 2 or 2b refuses; it ends in `Phase: Error` with `Duration: 0s` and **no resource result rows**. A fence-3 failure has result rows, at least one of them `SyncFailed`. When the fast question is ambiguous, count the result rows.
+3. **The fast question is "did the sync start?" — the *reliable* tell is "did anything get applied?"** Argo CD will happily record a sync operation for a request that fence 2 or 2b refuses; it ends in `Phase: Error` with `Duration: 0s` and an **empty sync result**. A fence-3 failure fills the sync result with a row per resource, at least one of them `SyncFailed`. When the fast question is ambiguous, read the sync result.
 4. **Several guards can refuse the same request; only the first one speaks.** That is why "which fence would refuse this?" is a weaker question than "which fence *did* refuse this, and how can I tell?"
+
+> **Where the result rows actually are — this trips people up.** "Sync result" is a specific thing, and it is not the table `argocd app get` prints.
+>
+> In the **UI**, the sync-result panel has a section headed **RESULT**. A fence-3 failure fills it with a row whose STATUS is `SyncFailed`; a fence-2 or fence-2b refusal has no RESULT section at all.
+>
+> In the **CLI**, `argocd app get` prints the Application's **resource tree** instead — a row for every resource the Application manages, in *both* cases, and the words `SyncFailed` never appear there. So in the CLI the tell is the **MESSAGE column**: empty for an Argo CD-side refusal, carrying the cluster's own rejection text for a Kubernetes-side one.
+>
+> If you want the literal sync result from the command line, ask the object for it directly:
+>
+> ```bash
+> kubectl --context k3d-mgmt -n argocd get application <name> \
+>   -o jsonpath='{.status.operationState.syncResult.resources}' ; echo
+> ```
+>
+> It prints nothing at all after a fence-2/2b refusal, and a JSON list containing `"status":"SyncFailed"` after a fence-3 refusal. That command is the mechanical way to settle the question when the screenshots and the tree disagree with your reading.
 
 ---
 
@@ -155,6 +170,8 @@ The `--verify-only` flag prints a PASS/FAIL table **without changing anything**.
   PASS  Application storefront-prod-workload Synced/Healthy
   PASS  Application hello-reconcile absent
   PASS  Application storefront-dev absent
+  PASS  Application team-a-guestbook absent
+  PASS  AppProject team-a absent
   PASS  ApplicationSet storefront present
   PASS  AppProject storefront present
   PASS  AppProject platform present
@@ -171,7 +188,7 @@ PASS CP-lab-05 is in the expected state.
 
 If any row says **FAIL**, run `reset-lab.sh CP-lab-05` (without `--verify-only`) to restore the checkpoint. **Warning:** a full reset discards any lab work you have not committed and pushed.
 
-Notice what the verifier does **not** list: there is no `AppProject team-a` and no `team-a-dev` RBAC. That absence is the correct starting state — you will create both.
+Notice the two rows that assert an **absence**: `Application team-a-guestbook absent` and `AppProject team-a absent`. The verifier is not merely silent about team-a — it actively checks that team-a does not exist yet, because that is the correct starting state. (A "PASS" on an *absent* row means the thing is confirmed missing, which is what you want here.) You will create both of those objects, plus the `team-a-dev` RBAC grant, in Exercise 1.
 
 ### 5.2 Confirm the starting picture in the UI
 
@@ -215,39 +232,61 @@ grep -n -A6 "rbac:" platform-config/argocd/values.yaml
 **Expected output:**
 
 ```text
-136:  rbac:
-137-    # No permissions by default. Anonymous users see nothing. Lab 5 adds a
-138-    # role:team-a policy (applied via the CP-capstone values overlay in resets).
-139-    policy.default: ""
-140-    policy.csv: ""
+141:  rbac:
+142-    # No permissions by default: an account that is not named in policy.csv can
+143-    # log in and see nothing. Every grant is written here, deliberately.
+144-    policy.default: ""
+145-    policy.csv: ""
 ```
 
-The `-n` flag prints the line numbers, and the file ends at line 140, which is why you see five lines rather than seven. `policy.csv` is empty today, which is why `team-a-dev` can log in but see nothing. You will fill it in Exercise 1.
+The `-n` flag prints the line numbers, and this file ends at line 145, which is why `-A6` shows you four lines after the match rather than six. `policy.csv` is empty today, which is why `team-a-dev` can log in but see nothing. You will fill it in Exercise 1.
 
 ### 6.2 How a values change becomes live Argo CD configuration
 
-Editing `values.yaml` does nothing on its own. The platform tooling applies it with one wrapper script that stands in for "the pipeline that manages Argo CD declaratively". **Always pass the path to the values file you edited**, so the script applies *your* clone and not the pristine seed copy the course ships:
+Editing `values.yaml` does nothing on its own. The platform tooling applies it with one wrapper script that stands in for "the pipeline that manages Argo CD declaratively":
 
 ```bash
 apply-argocd-config.sh ~/platform-config/argocd/values.yaml
 ```
 
-That script runs `helm upgrade --install` with the course values plus your file, which rewrites the `argocd-rbac-cm` ConfigMap (among others). After it finishes, your policy lines are live. You do **not** edit `argocd-rbac-cm` by hand — you edit the values file and re-apply.
+**Where does that script get its values, and why does the path matter?** By default — with no argument at all — the wrapper reads `platform-config` `main` **as Gitea currently serves it**. That is the declarative source of truth: the configuration the platform has actually agreed to, not whatever happens to be sitting in someone's editor. It announces the choice on its first lines, for example:
 
-> **Expect to be logged out — every single time.** Applying the configuration re-stamps the Argo CD account passwords, and that revokes **every** session token that was issued earlier, including yours. The very next `argocd` command you run will fail with:
+```text
+==> Applying Argo CD configuration (chart 10.8.4, v3.5.2)
+  ok values source: platform-config main (Gitea 93401a2)
+  ok overlay: /home/student/platform-config/argocd/values.yaml
+```
+
+The short commit hash in the `values source:` line will be whatever `main` points at on your machine, so expect a different seven characters. The `overlay:` line appears once per file path you passed.
+
+An edit that lives only in your working copy is, by definition, not on `main` yet — so a bare run would not include it. Passing the file path layers your uncommitted edit **on top of** that base, which is exactly what you want while you are still iterating; once Exercise 1 Part C commits and pushes the same edit, a bare run would pick it up on its own. Reading the `values source:` line is how you tell which of the two happened.
+
+(For completeness, because you will meet it in the scripts: an `$ARGOCD_VALUES_FILE` environment variable can pin the base to one exact file, ignoring Gitea entirely — `reset-lab.sh` uses it so a reset restores a known-good configuration no matter what state the repository has been left in. And if Gitea cannot be read at all, the wrapper falls back to the pristine seed copy the course ships, printing a loud warning that your committed changes are **not** being applied. You do not need either one by hand.)
+
+That script runs `helm upgrade --install` with the resolved values, which rewrites the `argocd-rbac-cm` ConfigMap (among others). After it finishes, your policy lines are live. You do **not** edit `argocd-rbac-cm` by hand — you edit the values file and re-apply.
+
+> **You normally stay logged in — but check the wrapper's own output.** Applying the configuration re-stamps the Argo CD account passwords **only when the underlying credential files have changed**. When they have not — which is the usual case in this lab — the wrapper reuses the live password hashes and prints:
+>
+> ```text
+>   ok account passwords unchanged: reusing the live hashes (existing logins stay valid)
+> ```
+>
+> and your CLI session and browser tab both keep working. Expect that, and do not go looking for a problem when nothing breaks.
+>
+> **If instead the wrapper reports that it re-stamped the passwords** (or a component restarts and ends your session), every token issued earlier is invalid and the very next `argocd` command fails with:
 >
 > ```text
 > {"level":"fatal","msg":"rpc error: code = Unauthenticated desc = invalid session: account password has changed since token issued","time":"..."}
 > ```
 >
-> In a lab about authorization errors, that is a cruel red herring — so treat it as part of the apply step, not as a failure. Log in again immediately afterwards, and refresh the browser tab (the UI will bounce you to the login page too):
+> That message is about the apply, not about your policy — a red herring in a lab full of real authorization errors. If you see it, log in again and refresh the browser tab:
 >
 > ```bash
 > argocd login localhost:8443 --username admin \
 >   --password "$(cat ~/course/credentials/argocd-admin.txt)" --insecure
 > ```
 >
-> The `$(cat …)` form reads the password from the file without printing it on your screen.
+> The `$(cat …)` form reads the password from the file without printing it on your screen. Running that command when you were not logged out is harmless.
 
 ### 6.3 The two tools that read a fence's verdict
 
@@ -364,11 +403,15 @@ argocd admin settings rbac can team-a-dev sync   applications 'team-a/team-a-gue
 argocd admin settings rbac can team-a-dev delete applications 'team-a/team-a-guestbook' --policy-file /tmp/my-policy.csv   # expect: No
 ```
 
-Only when the offline test matches your intent, paste the lines into `values.yaml` and apply for real — then log in again, because the apply revoked your session (Section 6.2):
+Only when the offline test matches your intent, paste the lines into `values.yaml` and apply for real. Pass the path, because your edit is not on `main` yet (Section 6.2):
 
 ```bash
 apply-argocd-config.sh ~/platform-config/argocd/values.yaml
+```
 
+Read the wrapper's last lines. It should report `account passwords unchanged: reusing the live hashes`, which means your session is still valid and you can carry straight on. If it reports that it re-stamped the passwords, or the next command complains about an invalid session, log in again — the command below is harmless either way:
+
+```bash
 argocd login localhost:8443 --username admin \
   --password "$(cat ~/course/credentials/argocd-admin.txt)" --insecure
 ```
@@ -388,7 +431,16 @@ git -C ~/platform-config commit -m "team-a: restricted AppProject and least-priv
 git -C ~/platform-config push origin main
 ```
 
-If Git asks for credentials, they are the Gitea student credentials in `~/course/credentials/gitea-student.txt` — the same ones you used in Lab 3. A later `reset-lab.sh` force-moves `main` back to a checkpoint tag, so this commit is your record of the change, not a permanent alteration of the course repository.
+If Git asks for credentials, they are the Gitea student credentials in `~/course/credentials/gitea-student.txt` — the same ones you used in Lab 3.
+
+If the commit instead stops with `Author identity unknown … fatal: unable to auto-detect email address`, Git does not know who you are in this clone; that identity is set once per clone, and Lab 2 §5.3 is where you set it. Set it now with the same two values and re-run the commit:
+
+```bash
+git -C ~/platform-config config user.email "student@lab.local"
+git -C ~/platform-config config user.name  "Student"
+```
+
+A later `reset-lab.sh` force-moves `main` back to a checkpoint tag, so this commit is your record of the change, not a permanent alteration of the course repository.
 
 **Output shape of a correct result.**
 
@@ -448,14 +500,14 @@ argocd app get team-a-guestbook
 
 **Output shape of a correct result.** `argocd app get team-a-guestbook` reports `Sync Status: Synced` and `Health Status: Healthy`, with the guestbook `Deployment` and `Service` listed in namespace `team-a`, each with a `Synced` result row. Because this Application obeys every guard — approved repo, approved destination, namespaced kinds only, kinds the ServiceAccount can create — nothing refuses it.
 
-> **One cosmetic oddity, so it does not distract you.** `argocd app get` prints a `URL:` line that begins `https://argocd.example.com/…`. That is the Helm chart's placeholder `global.domain` value, not your VM. Your UI is still the tunnel at `https://localhost:8443`.
+> **One line worth reading rather than skipping.** `argocd app get` prints a `URL:` line — here, `URL: https://localhost:8443/applications/team-a-guestbook`. That address is not guessed by the CLI; it is built from `global.domain` in the Argo CD values file you looked at in Section 6.1, which the chart writes into the `url` field of the `argocd-cm` ConfigMap. It is the one-click path from a terminal finding to the same object in the UI, and you will use it constantly in the capstone.
 
 **Difficulty:** easy. **Time:** 5 min.
 
 **Hints.**
 - *Hint 1:* If Argo CD rejects the Application with a condition mentioning your project, the `source`, `destination`, or a kind does not match the fence you built in E1 — read the condition; it names which one.
 - *Hint 2:* If it stays `OutOfSync`/`Missing`, you have probably not synced it yet, or `path` does not point at `guestbook`. Confirm with `argocd app get team-a-guestbook` and read the `source` block.
-- *Hint 3:* If the very first command after Exercise 1 fails with `invalid session: account password has changed since token issued`, that is the expected side effect of applying Argo CD configuration. Log in again (Section 6.2) and re-run.
+- *Hint 3:* Applying Argo CD configuration in Exercise 1 normally leaves your session alone, so you should be able to run these commands straight away. In the less common case where the apply re-stamped the account passwords, the first command after it fails with `invalid session: account password has changed since token issued` — that is the apply, not your Application. Log in again (Section 6.2) and re-run.
 
 ---
 
@@ -482,7 +534,7 @@ InvalidSpecError  application destination server 'https://k3d-workload-server-0:
                   do not match any of the allowed destinations in project 'team-a'
 ```
 
-Note the exact shape, because you will look for it again in the capstone: condition type **`InvalidSpecError`**, the phrase **`do not match any of the allowed destinations in project 'team-a'`**, and **single** quotes around the values. This condition appears without you syncing anything. If you *do* press Sync, an operation is recorded and ends immediately with `Phase: Error`, `Duration: 0s` and the same message — with **no resource result rows** and nothing changed on the cluster.
+Note the exact shape, because you will look for it again in the capstone: condition type **`InvalidSpecError`**, the phrase **`do not match any of the allowed destinations in project 'team-a'`**, and **single** quotes around the values. This condition appears without you syncing anything. If you *do* press Sync, an operation is recorded and ends immediately with `Phase: Error`, `Duration: 0s` and the same message — with an **empty sync result** (no RESULT rows in the UI) and nothing changed on the cluster.
 
 ![Argo CD Application conditions dialog for team-a-wrong-dest in v3.5.2. One row: type InvalidSpecError, message "application destination server 'https://k3d-workload-server-0:6443' and namespace 'storefront-prod' do not match any of the allowed destinations in project 'team-a'", with a timestamp.](../assets/screenshots/day-2/lab-05-03-destination-rejected.png)
 
@@ -531,12 +583,12 @@ The order Argo CD reaches its own checks, which the two parts of this exercise t
 
 So your empty `clusterResourceWhitelist` is real, and it would refuse this `ClusterRole` — it simply never gets asked, because a narrower guard is standing in front of it. Defense in depth means the outer guard usually gets the microphone.
 
-![Argo CD sync result panel for team-a-clusterrole in v3.5.2. OPERATION Sync, PHASE Error, MESSAGE "ComparisonError: Failed to load live state: cluster level ClusterRole \"team-a-escalation\" can not be managed when in namespaced mode", STARTED AT and FINISHED AT identical, DURATION 0s, INITIATED BY admin. No resource result rows are listed.](../assets/screenshots/day-2/lab-05-04-cluster-scoped-blocked.png)
+![Argo CD sync result panel for team-a-clusterrole in v3.5.2. OPERATION Sync, PHASE Error, MESSAGE "ComparisonError: Failed to load live state: cluster level ClusterRole \"team-a-escalation\" can not be managed when in namespaced mode", STARTED AT and FINISHED AT identical, DURATION 0s, INITIATED BY admin. The panel has no RESULT section at all.](../assets/screenshots/day-2/lab-05-04-cluster-scoped-blocked.png)
 
 **What to notice:**
 1. `PHASE: Error` with `DURATION: 0s` and identical start/finish times — the operation was recorded and abandoned in the same instant.
 2. The message says `can not be managed when in namespaced mode`, which names the *cluster registration*, not the project.
-3. There are **no resource result rows** in the panel. Compare that with the screenshot in Exercise 4 Part B, where a failed apply produces a row per resource.
+3. The panel has **no RESULT section at all** — Argo CD never got as far as applying anything, so it has nothing to report per resource. Compare that with the screenshot in Exercise 4 Part B, where the RESULT section exists and carries a row. Remember from Section 4 that the CLI shows you the *resource tree* instead: `argocd app get team-a-clusterrole` does print a `ClusterRole` row, with `STATUS: Unknown` and an **empty MESSAGE column**. If you want the sync result itself from the CLI, ask the object: `kubectl --context k3d-mgmt -n argocd get application team-a-clusterrole -o jsonpath='{.status.operationState.syncResult.resources}' ; echo` prints nothing at all.
 
 <!-- CAPTURE-SPEC: SS-L5-04 — Argo CD sync result, cluster-scoped kind refused by the namespaced-mode cluster scope. State: E3 part B, throwaway Application in project team-a with path attempts/cluster-scoped, after a sync attempt, route /applications/team-a-clusterrole, open the sync result panel. Highlight: PHASE Error and the ComparisonError MESSAGE row. Fidelity: dialog. Argo CD v3.5.2. Captured live 2026-09-11. -->
 
@@ -588,13 +640,16 @@ argocd login localhost:8443 --username admin \
 kubectl --context k3d-mgmt -n argocd logs deploy/argocd-server | grep "permission denied"
 ```
 
-**Expected output** (one line per denial; yours will carry your own timestamps):
+**Expected output** (***two*** lines per denial — the interesting one first, then gRPC's own record of the same call; yours will carry your own timestamps):
 
 ```text
-level=warning msg="user tried to get application which they do not have access to: rpc error: code = PermissionDenied desc = permission denied: applications, get, storefront/storefront-prod-workload, sub: team-a-dev, iat: 2026-09-11T17:38:14Z" application=storefront-prod-workload namespace=argocd project=storefront security=2 user=team-a-dev
+time="2026-09-12T16:50:18Z" level=warning msg="user tried to get application which they do not have access to: rpc error: code = PermissionDenied desc = permission denied: applications, get, storefront/storefront-prod-workload, sub: team-a-dev, iat: 2026-09-12T16:50:18Z" application=storefront-prod-workload namespace=argocd project=storefront security=2 user=team-a-dev
+time="2026-09-12T16:50:18Z" level=warning msg="finished call" grpc.code=PermissionDenied grpc.component=server grpc.method=Get grpc.method_type=unary grpc.service=application.ApplicationService grpc.start_time="2026-09-12T16:50:18Z" grpc.time_ms=5.417 peer.address="10.42.0.1:62218" protocol=grpc
 ```
 
-Read that line closely. It names `applications, **get**, storefront/storefront-prod-workload` — not `sync`. The CLI's first move is to fetch the Application; that `get` is refused, so the `sync` permission is never even evaluated. The `security=2` field is Argo CD's own severity marker for authorization events, which is what a SIEM (Security Information and Event Management system) would alert on.
+Read the first line closely. It names `applications, **get**, storefront/storefront-prod-workload` — not `sync`. The CLI's first move is to fetch the Application; that `get` is refused, so the `sync` permission is never even evaluated. The `security=2` field is Argo CD's own severity marker for authorization events, which is what a SIEM (Security Information and Event Management system) would alert on.
+
+The second line is the transport layer reporting the same refusal, with `grpc.method=Get` — independent confirmation that the call that was blocked was the `get`, not the `sync`. Every log line here carries a `time="…"` prefix; if you want only the interesting half, add `| grep -v "finished call"` to the command.
 
 *Switch identity — browser.* In the Argo CD UI, use **Log out** (top right), log back in as `team-a-dev`, and open the URL for `storefront-prod-workload`.
 
@@ -639,12 +694,19 @@ User "system:serviceaccount:argocd-access:argocd-manager" cannot create resource
 in API group "networking.k8s.io" in the namespace "team-a"
 ```
 
-There is also a **resource result row** for the NetworkPolicy with `STATUS: SyncFailed`. That row is the structural tell from Section 4: Argo CD got far enough to try.
+There is also a **sync-result row** for the NetworkPolicy with `status: SyncFailed`. That row is the structural tell from Section 4 — Argo CD got far enough to try — but be precise about where you can see it. In the UI it is a row in the **RESULT** section of the sync-result panel (the screenshot below). In the CLI, `argocd app get team-a-netpol` shows you the resource *tree*, where the NetworkPolicy row reads `STATUS: OutOfSync` and the word `SyncFailed` never appears — what makes that row diagnostic is its **MESSAGE column**, which repeats the Kubernetes rejection verbatim. To see the literal sync result from the command line:
 
-![Argo CD sync result for team-a-netpol in v3.5.2, showing PHASE Failed and a MESSAGE reading "one or more objects failed to apply, reason: networkpolicies.networking.k8s.io is forbidden: User \"system:serviceaccount:argocd-access:argocd-manager\" cannot create resource \"networkpolicies\" in API group \"networking.k8s.io\" in the namespace \"team-a\"", plus a per-resource result row for the NetworkPolicy with status SyncFailed.](../assets/screenshots/day-2/lab-05-06-kubernetes-forbidden.png)
+```bash
+kubectl --context k3d-mgmt -n argocd get application team-a-netpol \
+  -o jsonpath='{.status.operationState.syncResult.resources}' ; echo
+```
+
+That prints a JSON list with one entry for the NetworkPolicy containing `"status":"SyncFailed"` — where the same command in Exercise 3 Part B printed nothing at all. Run it for both Applications if you want the contrast in a single pair of outputs.
+
+![Argo CD sync result for team-a-netpol in v3.5.2, showing PHASE Failed and a MESSAGE reading "one or more objects failed to apply, reason: networkpolicies.networking.k8s.io is forbidden: User \"system:serviceaccount:argocd-access:argocd-manager\" cannot create resource \"networkpolicies\" in API group \"networking.k8s.io\" in the namespace \"team-a\"", plus a RESULT section containing one row for the NetworkPolicy with status SyncFailed.](../assets/screenshots/day-2/lab-05-06-kubernetes-forbidden.png)
 
 **What to notice:**
-1. The sync **started** and produced per-resource results — a `SyncFailed` row, not an empty panel.
+1. The sync **started** and produced per-resource results — the panel has a **RESULT** section with a `SyncFailed` row, where Exercise 3 Part B's panel had no RESULT section at all.
 2. The word is `forbidden`, and the subject is a **ServiceAccount** (`system:serviceaccount:argocd-access:argocd-manager`), not a person and not an Argo CD account.
 3. The message names an API group, a resource, and a namespace — the exact vocabulary of a Kubernetes `Role`. Nothing in it mentions Argo CD, because Argo CD is only the messenger here.
 
@@ -770,8 +832,8 @@ Before you change anything in this table, notice what you are practising: you re
 
 | Likely failure | Likely cause | Fix |
 |---|---|---|
-| Any `argocd` command fails with `invalid session: account password has changed since token issued` | You applied Argo CD configuration, which re-stamps account passwords and revokes every existing token. This is expected, not a fault. | Log in again: `argocd login localhost:8443 --username admin --password "$(cat ~/course/credentials/argocd-admin.txt)" --insecure`, and refresh the browser tab. |
-| `apply-argocd-config.sh` succeeds but the policy is unchanged | The script was run without your values file, so it applied the pristine seed copy instead of your clone. | Re-run it as `apply-argocd-config.sh ~/platform-config/argocd/values.yaml`, then verify with `kubectl --context k3d-mgmt -n argocd get cm argocd-rbac-cm -o jsonpath='{.data.policy\.csv}'`. |
+| Any `argocd` command fails with `invalid session: account password has changed since token issued` | An apply re-stamped the Argo CD account passwords, which revokes every token issued before it. It does not normally happen in this lab — check the apply's own output line, which usually reports `account passwords unchanged: reusing the live hashes`. | Log in again: `argocd login localhost:8443 --username admin --password "$(cat ~/course/credentials/argocd-admin.txt)" --insecure`, and refresh the browser tab. |
+| `apply-argocd-config.sh` succeeds but the policy is unchanged | The wrapper applies what is **committed and pushed** to `platform-config` `main`, plus any values file you pass it. An edit that is still only in your working copy reaches the cluster only if you pass its path. | Either pass the file — `apply-argocd-config.sh ~/platform-config/argocd/values.yaml` — or commit and push first (Exercise 1 Part C). Read the wrapper's own `values source:` line to see which it used, then verify with `kubectl --context k3d-mgmt -n argocd get cm argocd-rbac-cm -o jsonpath='{.data.policy\.csv}'`. |
 | `argocd admin settings rbac can …` exits with `please provide exactly one of --policy-file or --namespace` | The command has no default source. | Add `--policy-file <path>` to test a file, or `--namespace argocd` to test the live ConfigMap. Never both. |
 | `team-a-dev` logs in but the Applications list is empty and every action fails | The RBAC grant from E1 was not applied, or `policy.csv` is still empty. `team-a-dev` has **no** permissions until you grant them. | Confirm `argocd admin settings rbac can team-a-dev get applications 'team-a/*' --namespace argocd` prints `Yes`; if `No`, re-check your `policy.csv` lines and re-apply with the values path. |
 | An Application shows `InvalidSpecError … do not match any of the allowed destinations` and you did **not** expect it | Fence 2 (the AppProject) — the `source` or `destination` is outside team-a's allow-lists. Nothing was applied. | Read which value the message names, then either fix the Application to stay inside the fence or, if the need is legitimate, widen the project deliberately and commit that change. |
@@ -787,7 +849,7 @@ Before you change anything in this table, notice what you are practising: you re
 
 You have built one fence and tried to walk through it four ways. The checkpoint is not "did anything turn green" — it is **"did each refusal come from the layer I predicted, with a message that named the rule?"** Fill in the last three columns from your own run:
 
-| Attempt | Predicted layer | Expected message contains | Resource result rows? | Observed message | Match? |
+| Attempt | Predicted layer | Expected message contains | Result rows (UI RESULT panel / `syncResult`)? | Observed message | Match? |
 |---|---|---|---|---|---|
 | E3-A wrong destination | Fence 2 · AppProject (spec check) | `InvalidSpecError … do not match any of the allowed destinations in project 'team-a'` | none | | |
 | E3-B cluster-scoped ClusterRole | Fence 2b · cluster registration scope | `ComparisonError … can not be managed when in namespaced mode` | none | | |
@@ -795,7 +857,16 @@ You have built one fence and tried to walk through it four ways. The checkpoint 
 | E4-B NetworkPolicy in `team-a` | Fence 3 · Kubernetes RBAC | `forbidden … system:serviceaccount:argocd-access:argocd-manager` | one, `SyncFailed` | | |
 | E5 `team-a-dev` deletes its own app | Fence 1 · Argo CD RBAC | `permission denied: applications, delete, team-a/team-a-guestbook, sub: team-a-dev` | not applicable | | |
 
-The "resource result rows?" column is the one that separates fence 2/2b from fence 3 when both show a failed operation. An Argo CD-side refusal produces an empty result list; a Kubernetes-side refusal produces a row per resource, at least one of them `SyncFailed`.
+The result-rows column is the one that separates fence 2/2b from fence 3 when both show a failed operation. An Argo CD-side refusal produces an **empty sync result**; a Kubernetes-side refusal produces a row per resource, at least one of them `SyncFailed`.
+
+Score that column from the **UI's RESULT panel** or from the object itself — not from the table `argocd app get` prints, which is the resource tree and shows a row either way (Section 4). The mechanical way to fill it in:
+
+```bash
+kubectl --context k3d-mgmt -n argocd get application <name> \
+  -o jsonpath='{.status.operationState.syncResult.resources}' ; echo
+```
+
+Empty output means "none"; a JSON list containing `"status":"SyncFailed"` means "one". If you already deleted the throwaways at the end of Exercise 4, fill the column from what you observed at the time — that is the point of predicting and reading as you go.
 
 You have passed this lab when:
 
@@ -813,7 +884,7 @@ You have passed this lab when:
 - **A guardrail you have never tried to break is a guardrail you do not have.** The proof a fence works is a refused attempt, and the proof it is a *good* fence is a refusal that names the rule.
 - **Four guards, three systems, four error signatures.** Argo CD RBAC ("are you allowed to ask?"), the AppProject ("may this app point there?"), the cluster registration scope ("may Argo CD manage this kind on that cluster at all?"), and Kubernetes RBAC ("may the ServiceAccount do it?"). Three live in Argo CD; one lives on the workload cluster.
 - **Several guards can refuse the same request, and only the first one speaks.** A correct prediction confirmed by the wrong message is still a wrong diagnosis — always name the layer from the *vocabulary* of the message (`project` vs `namespaced mode` vs `system:serviceaccount:`).
-- **Count the result rows.** An Argo CD-side refusal records an operation with `Duration: 0s` and no resource results; a Kubernetes-side refusal has a `SyncFailed` row per resource. That single observation tells you which team to page.
+- **Read the sync result — and know where it lives.** An Argo CD-side refusal records an operation with `Duration: 0s` and an empty sync result; a Kubernetes-side refusal fills it with a `SyncFailed` row per resource. That single observation tells you which team to page. It is visible in the UI's **RESULT** panel and in `.status.operationState.syncResult.resources`; the table `argocd app get` prints is the resource *tree*, which has a row either way, so there the tell is the MESSAGE column.
 - **How much a denial tells you depends on what you may see.** Argo CD names the exact rule when you can `get` the object and says only `permission denied` when you cannot; the full detail always exists in the `argocd-server` log with `security=2`.
 - **`argocd admin settings rbac can … --policy-file` is a unit test for your permission model**, and `--namespace argocd` is the production check. Write the test before your users find the bug — that is what "policy as code" means in practice.
 - **Deletion danger lives in the delete *path*, not only in the object.** No Application in this platform carries the cascade finalizer, and a UI or CLI delete would still take the workloads down, because the client asks for the cascade. Least privilege on the `delete` action is therefore the boundary that actually holds.
@@ -824,7 +895,7 @@ You have passed this lab when:
 
 Do any of these only if you have time; none is required to pass, and none is needed for the capstone.
 
-1. **Add an explicit `deny` and prove deny precedence.** A future engineer might one day widen `role:team-a` with an over-broad `allow`. An explicit `deny` protects production regardless, because in Argo CD RBAC **a `deny` always beats an `allow`**, whatever the order of the lines. Add one line of the shape `p, role:team-a, applications, delete, <project>/*, deny` to your `policy.csv` — you choose the scope that protects the storefront Applications. Prove it two ways: offline, by putting **both** a broad `allow` and your `deny` in a scratch file and asking `rbac can … delete … --policy-file` (it should still answer `No`), then for real with `apply-argocd-config.sh ~/platform-config/argocd/values.yaml`, a fresh `argocd login`, and `rbac can … --namespace argocd`. Commit the line when you are satisfied.
+1. **Add an explicit `deny` and prove deny precedence.** A future engineer might one day widen `role:team-a` with an over-broad `allow`. An explicit `deny` protects production regardless, because in Argo CD RBAC **a `deny` always beats an `allow`**, whatever the order of the lines. Add one line of the shape `p, role:team-a, applications, delete, <project>/*, deny` to your `policy.csv` — you choose the scope that protects the storefront Applications. Prove it two ways: offline, by putting **both** a broad `allow` and your `deny` in a scratch file and asking `rbac can … delete … --policy-file` (it should still answer `No`), then for real with `apply-argocd-config.sh ~/platform-config/argocd/values.yaml` followed by `rbac can … --namespace argocd` (log in again only if that apply reports it re-stamped the passwords). Commit the line when you are satisfied.
 2. **Lock the ApplicationSet controller (blast-radius governance).** Set `applicationsetcontroller.policy: create-update` in the Argo CD values and re-apply with your values path. This is a *controller-wide* lock: unlike Lab 4's per-ApplicationSet `applicationsSync`, once the controller policy is set, per-ApplicationSet overrides are disabled by default. **Predict first:** after this, can a single ApplicationSet still opt into `create-delete`? Confirm, then revert with a reset.
 3. **Add a deny sync window on the `storefront` project.** Attach a `syncWindows` entry that *denies* syncs on a schedule, leaving `manualSync` off — for example `argocd proj windows add storefront --kind deny --schedule "* * * * *" --duration 1h --applications "*"`. The project page grows a window row, the Application shows `SyncWindow: Sync Denied`, and a sync attempt is refused with `cannot sync: blocked by sync window`. The detail worth noticing: with `manualSync` off, even an **admin** manual sync is refused, not only automated sync. This is the auditable "change freeze as configuration" from Guide 06. Remove the window when you are done.
 4. **Issue a project-role JWT for automation.** Define a role inside the `team-a` project scoped to `sync` only (`argocd proj role create team-a ci-sync`, then `argocd proj role add-policy team-a ci-sync --action sync --permission allow --object 'team-a/*'`), and mint a token with `argocd proj role create-token team-a ci-sync`. Then run `argocd proj role get team-a ci-sync` and read the policies it holds: role creation alone adds a `projects, get` line, and your `--action sync` adds the `applications, sync, team-a/*` line. This is the safe alternative to the broad admin token in Guide 06's opening story — a credential that can do exactly one project's syncs and nothing else. Inspecting the role shows the scoping **without ever printing the token**; do not print or commit the token value.
