@@ -4,11 +4,33 @@
 > **Argo CD version this course targets: `v3.5.2`** (Helm chart `10.8.4`; the repo-server renders charts with **Helm v4.2.1**).
 > **What you need open:** nothing is required — this is a read-and-think session. There is one optional, read-only CLI (command-line interface) exercise at the end (Section 7) that renders an ApplicationSet's output **without creating anything**. **Lab 4** is where you actually build the storefront ApplicationSet, trace an App-of-Apps root, break it, and recover; this session gives you the mental model that makes Lab 4 make sense.
 
+> **Timing, accounted honestly (for you and your instructor).** The course allots this session **60 minutes**, and the table below covers *every* section, reading time included — not only the walkthrough. Walked at full depth the blocks total about **75 minutes**, so five of them are marked as *self-read* or *compressible*. Taking all five moves lands the session at roughly **62 minutes**; the last minute or two comes out of Quick Check discussion. Nothing is removed from the file either way — compressed material stays here to read.
+>
+> | Block | Full depth | If time is short |
+> |---|---:|---|
+> | Section 1 — Why this matters | 3 min | |
+> | Section 2 — Mental model (factory and family tree) | 4 min | never cut: everything else hangs off it |
+> | Section 3 — Vocabulary (8 terms) | 3 min | **self-read** before the session |
+> | Section 4 — V-19 fan-out and V-20 ownership tree | 6 min | |
+> | Sections 5.1–5.2 — Two controllers, five generators | 14 min | never cut |
+> | Sections 5.3–5.4 — Template, hard-coded `project`, `missingkey=error` | 8 min | never cut |
+> | Sections 5.5–5.6 — The three controls, preview → count → apply | 8 min | never cut |
+> | Section 5.7 — Progressive sync box | 3 min | **compress** to its two headline facts (1 min) |
+> | Sections 5.8–5.9 — App-of-Apps and deleting a root | 8 min | |
+> | Sections 5.10–5.11 — Multiple roots, tracing root → repo → child | 3 min | **compress** to 1 min; Lab 4 drills the trace |
+> | Section 4 — V-21 decision table | 3 min | |
+> | Section 6 — Quick Checks (four) | 6 min | **two live, two self-check** |
+> | Screenshot gallery (SS-S5-01 to SS-S5-03) | 3 min | **self-read** |
+> | Sections 8–9 — Misconceptions, takeaways, transition | 3 min | |
+> | **Total** | **75 min** | **≈62 min** |
+>
+> Section 7 (Try It Yourself) is optional and sits **outside** this budget.
+
 **Where this sits in the course.** Day 1 ended with one working path: a change in Git, reconciled by the **application controller** (the Argo CD component that compares desired state to live state and applies the difference), landing on a workload cluster. Session 4 taught how Helm renders, how a sync is ordered, and how a change is promoted. Everything so far has been about **one Application at a time**.
 
-Day 2 is about **scale**. In production you rarely have one Application — you have the same app across a dozen clusters, or a whole platform of components that must come up in a known order. This session teaches the two patterns Argo CD gives you for that, **ApplicationSets** and **App-of-Apps**, and — just as importantly — how to reason about the new failure modes each one introduces. By the end you will be able to predict how many Applications a generator will produce, explain why a missing value is more dangerous than an error, choose the right pattern from the outline's decision table, and describe exactly what deleting a root Application does.
+Day 2 is about **scale**. In production you rarely have one Application — you have the same app across a dozen clusters, or a whole platform of components that must come up in a known order. This session teaches the two patterns Argo CD gives you for that, **ApplicationSets** and **App-of-Apps**, and — equally importantly — how to reason about the new failure modes each one introduces. By the end you will be able to predict how many Applications a generator will produce, explain why a missing value is more dangerous than an error, choose the right pattern from the outline's decision table, and describe exactly what deleting a root Application does.
 
-**One promise up front, because it removes most of the fear:** there is **no new deployment mechanism today.** Both patterns are just new ways of *writing Applications*. Once an Application exists, the same Day-1 controller reconciles it in exactly the same way. Hold onto that; we will return to it repeatedly.
+**One promise up front, because it removes most of the fear:** there is **no new deployment mechanism today.** Both patterns are new ways of *writing Applications* — not a new deployment mechanism. Once an Application exists, the same Day-1 controller reconciles it in exactly the same way. Hold onto that; we will return to it repeatedly.
 
 ---
 
@@ -49,7 +71,7 @@ That single contrast gives you the choosing rule, and it is the entire decision 
 
 "Deploy the same agent to every cluster Argo CD already knows about" — the list is *derived* from the clusters, so: factory (ApplicationSet). "Bring up the platform's namespaces, then quotas, then network policies, then the agent, in that order" — the list is a *decision* a human made, so: family tree (App-of-Apps).
 
-Two more framings to carry through the session, because they keep you from the most common wrong takeaway ("ApplicationSets are just the advanced one"):
+Two more framings to carry through the session, because they keep you from the most common wrong takeaway ("ApplicationSets are the advanced pattern and App-of-Apps is the beginner one"):
 
 - **ApplicationSet gives you _leverage_.** One change moves forty things. That is power and risk in the same gesture.
 - **App-of-Apps gives you _legibility_.** A human can read the tree and say, out loud, exactly what should exist and in what order.
@@ -60,37 +82,25 @@ Most real platform teams want **both** — and that is exactly what the last row
 
 ## 3. Vocabulary, grounded before we use it
 
-Each term gets a plain-language definition first, then its role. These are the words this file introduces to the rest of Day 2; Lab 4 uses them freely.
+Each term gets a plain-language definition first, then its role. These eight are the words you need **before** the walkthrough; Lab 4 uses them freely.
 
-- **ApplicationSet.** A Kubernetes **CRD (Custom Resource Definition** — a way of teaching Kubernetes a new kind of object) that Argo CD installs. An ApplicationSet object describes a *template* for an Application plus one or more *generators*, and the ApplicationSet controller turns that into many real Application objects. It is the "factory."
+Three more terms — the **merge** generator, **dry-run / preview**, and **progressive sync** — are defined in one line at the exact moment they first matter (Sections 5.2, 5.6, and 5.7), because each one gets its full treatment there and a definition here would only be read twice.
+
+- **ApplicationSet** (often abbreviated **AppSet** — you will see the short form in diagrams, in Lab 4, and in the capstone). A Kubernetes **CRD (Custom Resource Definition** — a way of teaching Kubernetes a new kind of object) that Argo CD installs. An ApplicationSet object describes a *template* for an Application plus one or more *generators*, and the ApplicationSet controller turns that into many real Application objects. It is the "factory."
 
 - **ApplicationSet controller.** A separate Argo CD component — the pod named `argocd-applicationset-controller` in the `argocd` namespace — whose *only* job is to create, update, and delete **Application objects**. It never talks to a workload cluster, never renders a Helm chart, never applies a Deployment. (Contrast: the **application controller** from Day 1 is the one that reconciles each Application onto a cluster. Two different controllers, two different jobs.)
 
 - **generator.** The part of an ApplicationSet that produces the *list* the factory stamps from. Each generator answers one question — "which environments? which clusters? which files?" — and emits a set of key/value parameters, one entry per item. The five this course teaches: **list**, **cluster**, **git**, **matrix**, **merge**.
 
-- **template (in an ApplicationSet).** The shape of one Application, with `{{ ... }}` placeholders where a generator's values get substituted. One template, rendered once per generator entry, yields many Applications.
-
-- **Go template.** The templating language Argo CD uses to fill those placeholders (the same language family Helm uses). Enabled per-ApplicationSet with `goTemplate: true`. It is what turns `name: "storefront-{{ .env }}"` into `storefront-dev`, `storefront-staging`, and so on.
+- **template (in an ApplicationSet), and Go template.** The **template** is the shape of one Application, with `{{ ... }}` placeholders where a generator's values get substituted; one template, rendered once per generator entry, yields many Applications. **Go template** is the templating language Argo CD uses to fill those placeholders (the same language family Helm uses), switched on per-ApplicationSet with `goTemplate: true`. It is what turns `name: "storefront-{{ .env }}"` into `storefront-dev`, `storefront-staging`, and so on.
 
 - **`missingkey=error`.** An opt-in Go-template strictness setting, written as `goTemplateOptions: ["missingkey=error"]`. **By default, a placeholder whose key is missing from the generator renders as an empty string** and no error is raised. With this option on, a missing key raises a template **error** instead — the ApplicationSet refuses to generate rather than generate something wrong. It is **not** the default, for backwards compatibility. Section 5.4 shows why it matters so much.
 
-- **`applicationsSync` policy.** The setting (`spec.syncPolicy.applicationsSync`) that decides what the factory is allowed to do to the Applications it already made: `create-only`, `create-update`, or `create-delete`. It governs the **Application objects**, not the workloads underneath them. Section 5.5 is the full trio.
+- **`applicationsSync` policy, and `preserveResourcesOnDeletion`** — the factory's two brakes, sitting on **two different layers**. `spec.syncPolicy.applicationsSync` (`create-only`, `create-update`, or `create-delete`) decides what the factory may do to the **Application objects** it already made. `spec.syncPolicy.preserveResourcesOnDeletion: true` decides something else entirely: when a generated Application *is* deleted, it leaves that Application's **child workload resources running** instead of cleaning them up. Section 5.5 is the full trio plus this fourth switch; keep the two layers apart in your head.
 
-- **`preserveResourcesOnDeletion`.** A separate setting (`spec.syncPolicy.preserveResourcesOnDeletion: true`) that, when a generated **Application** is deleted, leaves that Application's **child workload resources running** rather than cleaning them up. Different layer from `applicationsSync` — keep them apart in your head.
+- **App-of-Apps, root Application, and child Application.** **App-of-Apps** is a pattern (not a CRD) in which one ordinary Application — the **root** — has, as its rendered content, *other Application manifests*. Syncing the root creates those **child** Applications, and each child in turn manages real workloads. That is the "family tree," and ownership flows downward: root owns children, children own workloads.
 
-- **dry-run / preview.** Rendering the Applications an ApplicationSet *would* produce **without creating any of them**. The dependable command is `argocd appset generate <file>`; there is also a server-side `argocd appset create --dry-run <file>`, and a new (Alpha) **Preview tab** in the web UI (user interface). Preview is read-only on purpose — Git stays the write interface.
-
-- **progressive sync.** An optional, version-dependent ApplicationSet feature that rolls a change out to generated Applications in labeled stages instead of all at once. It is off by default and carries important caveats — covered in the boxed note in Section 5.7. **This course never depends on it.**
-
-- **App-of-Apps.** A pattern (not a CRD) in which one ordinary Application — the **root** — has, as its rendered content, *other Application manifests*. Syncing the root creates those **child** Applications. The "family tree."
-
-- **root Application / child Application.** In App-of-Apps, the **root** is the Application whose managed resources are child Application objects; a **child** is one of those generated-by-the-root Applications, which in turn manages real workloads. Ownership flows downward: root owns children, children own workloads.
-
-- **cascading deletion.** When you delete a parent Application and the deletion *propagates* to everything it owns — children, and their workloads — rather than stopping at the parent object. Whether it cascades is decided by a **finalizer** (next term).
-
-- **finalizer.** A small annotation on an Application — `resources-finalizer.argocd.argoproj.io` — that tells Kubernetes "before you actually remove this object, let Argo CD clean up what it manages first." **With** the finalizer, deleting the object cascades to its managed resources. **Without** it, deleting the object removes only the object and leaves everything it managed **orphaned but still running**. One quiet annotation, two opposite outcomes.
-
-Two one-word expansions used throughout: **RBAC** (role-based access control — the rules that decide who may do what) and **SCM** (source-code management — a Git hosting system such as GitHub or Gitea).
+- **finalizer, and cascading deletion.** A **finalizer** is a small annotation on an Application — `resources-finalizer.argocd.argoproj.io` — that tells Kubernetes "before you actually remove this object, let Argo CD clean up what it manages first." **With** the finalizer, deleting the object triggers **cascading deletion**: the delete *propagates* to everything the object owns — children, and their workloads — instead of stopping at the object. **Without** it, deleting the object removes only the object and leaves everything it managed **orphaned but still running**. One quiet annotation, two opposite outcomes.
 
 ---
 
@@ -128,9 +138,8 @@ Here is the fan-out. Notice the **hard horizontal line**: everything above it is
 
 **What to notice:**
 
-1. **Answer to the prediction: 6 Applications, and one template line changes all 6.** Blast radius is arithmetic, not a feeling: `(items in the generator) × (one template edit) = that many simultaneous changes`. If the generator yielded 40 clusters, editing one line would be a 40-cluster change — and the editing experience looks identical to editing one.
-2. **The controller has no idea you were nervous.** Nothing about the edit signals "careful, this is big." That is why *counting* the generated Applications before you edit (Section 5.6, and the whole rhythm of Lab 4) is a safety practice, not a formality.
-3. **Everything below the line is Day 1.** The ApplicationSet controller's job ends the instant the Application objects exist. From there, each Application is reconciled by the same application controller, with the same sync/health axes, the same drift behavior, the same everything from Session 2 and Lab 1. **There is no new deployment path to learn today.**
+1. **Answer to the prediction: 6 Applications, and one template line changes all 6.** Blast radius is arithmetic, not a feeling: `(items in the generator) × (one template edit) = that many simultaneous changes`. If the generator yielded 40 clusters, editing one line would be a 40-cluster change — and the editing experience looks identical to editing one, because nothing about the edit signals "careful, this is big." That is why *counting* the generated Applications before you edit (Section 5.6) is a safety practice, not a formality.
+2. **Everything below the line is Day 1.** The ApplicationSet controller's job ends the instant the Application objects exist. From there, each Application is reconciled by the same application controller, with the same sync/health axes, the same drift behavior, the same everything from Session 2 and Lab 1. **There is no new deployment path to learn today.**
 
 ### V-20 · App-of-Apps ownership tree, with the cascade path
 
@@ -164,13 +173,12 @@ Here is the course's real App-of-Apps hierarchy, drawn twice — once **with** t
 
 **What to notice:**
 
-1. **Answer to the prediction: it depends entirely on the finalizer.** With `resources-finalizer.argocd.argoproj.io` on the root, deleting the root **cascades** — the children and their workloads are removed too. Without it, deleting the root removes only the root object, and every child keeps running with no parent. **Two opposite disasters, one quiet annotation apart.**
-2. **Ownership flows downward, and so does deletion.** The root owns the three child Application objects (its rendered content is `apps/*.yaml`); each child owns real workloads on the workload cluster. A cascading delete follows those edges all the way down.
-3. **Cascade tears down in reverse of build-up.** Just as a sync builds low sync-waves first, a cascading delete removes managed resources before the object that owns them is finally gone (the default *foreground* propagation waits for the children first). You do not need the exact ordering memorized; you need to know that "delete the root" is never a small, local action.
+1. **Answer to the prediction: it depends entirely on the finalizer.** With `resources-finalizer.argocd.argoproj.io` on the root, deleting the root **cascades** — the delete follows the ownership edges downward (root → the three child Application objects → their workloads), so the children and their workloads are removed too. Without it, deleting the root removes only the root object, and every child keeps running with no parent. **Two opposite disasters, one quiet annotation apart.**
+2. **Cascade tears down in reverse of build-up.** Just as a sync builds low sync-waves first, a cascading delete removes managed resources before the object that owns them is finally gone (the default *foreground* propagation waits for the children first). You do not need the exact ordering memorized; you need to know that "delete the root" is never a small, local action.
 
 ### V-21 · Choosing the Right Pattern (the outline's decision table, verbatim)
 
-This is the outline's own table, reproduced exactly. It is the frame for this whole session and the spine of Lab 4 — everything above is just how to *re-derive* it from the factory/family-tree metaphor.
+This is the outline's own table, reproduced exactly. It is the frame for this whole session and the spine of Lab 4 — everything above is how to *re-derive* it from the factory/family-tree metaphor.
 
 | Need | Prefer |
 |---|---|
@@ -198,6 +206,8 @@ Say it plainly, because it is the biggest cognitive-load reduction available on 
 > **The ApplicationSet controller creates, updates, and deletes _Application objects_. That is all.**
 
 It never contacts a workload cluster. It never renders a chart. It never applies a Deployment. The instant a generated Application exists, the **application controller** from Day 1 takes over and reconciles it exactly as it reconciled the single `hello-reconcile` app in Lab 1 — same sync status, same health status, same drift and self-heal behavior.
+
+One Day-1 lesson is worth retrieving right here, because the fan-out in V-19 is the moment it matters most: **`OutOfSync` does not mean broken.** When a generator produces six Applications at once, or when one template edit moves all six, you will see six Applications turn `OutOfSync` simultaneously — a wall of yellow that looks alarming and is not. `OutOfSync` means only "live state differs from the desired state in Git," which is the *expected* and correct reading between a commit and the sync that follows it. Read the count, not the color.
 
 So there are really only two questions you will ever ask when an ApplicationSet-generated app is wrong, and they belong to two different components:
 
@@ -302,7 +312,7 @@ generators:
 
 The result: `dev` keeps `replicas: 1`; `staging` is overridden to `replicas: 3`. Reach for `merge` when you have a base list and a small set of per-item exceptions.
 
-> **The list is longer than five — on purpose we stop here.** Current Argo CD also documents **SCM Provider**, **Pull Request**, **Cluster Decision Resource**, and **Plugin** generators. They exist; they are out of scope for this course. Knowing the five above (and that more exist) is enough to reason about any ApplicationSet you will meet in Lab 4 and the capstone.
+> **The list is longer than five — on purpose we stop here.** Current Argo CD also documents **SCM Provider** (**SCM** is source-code management — a Git hosting system such as GitHub or Gitea), **Pull Request**, **Cluster Decision Resource**, and **Plugin** generators. They exist; they are out of scope for this course. Knowing the five above (and that more exist) is enough to reason about any ApplicationSet you will meet in Lab 4 and the capstone.
 
 Here is the whole set as a lookup:
 
@@ -343,7 +353,7 @@ spec:
 
 With this on, a missing key makes the ApplicationSet raise a template **error condition** and generate *nothing* for that entry — the existing Applications are left untouched, and you get a loud signal instead of a silent, wrong Application.
 
-Notice what just happened: **the safer configuration produces _more_ failures, earlier — and that is precisely the point.** An error at generation time is cheap and local; a successfully-generated wrong Application is expensive and remote. Every `examples/*.yaml` in this course sets `goTemplateOptions: ["missingkey=error"]`. Be aware, though, that it is **not** the default — any older ApplicationSet in your own estate almost certainly does *not* have it, which means those are silently rendering empties whenever a key goes missing.
+Notice what happened there: **the safer configuration produces _more_ failures, earlier — and that is precisely the point.** An error at generation time is cheap and local; a successfully-generated wrong Application is expensive and remote. Every `examples/*.yaml` in this course sets `goTemplateOptions: ["missingkey=error"]`. Be aware, though, that it is **not** the default — any older ApplicationSet in your own estate almost certainly does *not* have it, which means those are silently rendering empties whenever a key goes missing.
 
 ### 5.5 The three controls that bound what the factory may do to its output
 
@@ -367,26 +377,26 @@ You will set `create-update` and `preserveResourcesOnDeletion: true` in Lab 4, t
 
 ### 5.6 Preview before you apply — count the Applications first
 
-The antidote to V-19's blast radius arrives within a minute of the fear: you can render exactly what an ApplicationSet *would* generate, creating nothing. There are three ways, in order of dependability for this course:
+The antidote to V-19's blast radius arrives within a minute of the fear: **dry-run / preview** — rendering the Applications an ApplicationSet *would* produce **without creating any of them**. Preview is read-only on purpose: Git stays the write interface. There are three ways to do it, in order of dependability for this course:
 
 1. **`argocd appset generate <file>`** — the dependable, portable CLI command. It renders the Applications the ApplicationSet would produce and prints them; nothing is created. Add `-o yaml` (or `json`, or the default `wide`) to choose the format.
 2. **`argocd appset create --dry-run <file>`** — evaluates the template server-side and returns the Applications that *would* be managed, again creating nothing.
-3. **The web UI Preview tab** — new on the 3.5 line and visually excellent, but **Alpha** (see Section 5.8's screenshots). Treat it as a "you can also," not the method you rely on.
+3. **The web UI (user interface) Preview tab** — new on the 3.5 line and visually excellent, but **Alpha** (see SS-S5-01 and SS-S5-02 in the screenshot gallery at the end of this session). Treat it as a "you can also," not the method you rely on.
 
-The habit to build — the one that survives contact with a real 40-cluster estate — is **preview → count → apply**. Before you change a generator or a template, render the output and *read the generated Application names out loud*. If you expected three and see thirty, you just caught a blast-radius mistake for free. This rhythm is the whole spine of Lab 4.
+The habit to build — the one that survives contact with a real 40-cluster estate — is **preview → count → apply**. Before you change a generator or a template, render the output and *read the generated Application names out loud*. If you expected three and see thirty, you have caught a blast-radius mistake for free. This rhythm is the whole spine of Lab 4.
 
 ### 5.7 Progressive sync — a boxed, version-dependent feature you will *not* depend on
 
 > ### ⚠️ OPTIONAL / VERSION-DEPENDENT — Progressive Syncs (Beta since v3.3.0). No hands-on dependency in this course.
 >
-> By default, when you change an ApplicationSet, **all** its generated Applications update at once (the `AllAtOnce` strategy — the fan-out in V-19). **Progressive Syncs** is an opt-in feature that instead rolls the change out in labeled **stages**, waiting for each stage's Applications to become `Healthy` before starting the next. Its strategy type is `RollingSync`, and groups are selected by labels/`matchExpressions` on the generated Applications.
+> **Progressive sync** is an optional, version-dependent ApplicationSet feature that rolls a change out to generated Applications in labeled stages instead of all at once. Here is the longer version. By default, when you change an ApplicationSet, **all** its generated Applications update at once (the `AllAtOnce` strategy — the fan-out in V-19). **Progressive Syncs** is the opt-in feature that instead rolls the change out in labeled **stages**, waiting for each stage's Applications to become `Healthy` before starting the next. Its strategy type is `RollingSync`, and groups are selected by labels/`matchExpressions` on the generated Applications.
 >
 > It is **off by default** and must be explicitly enabled on the ApplicationSet controller (via `--enable-progressive-syncs`, the env var `ARGOCD_APPLICATIONSET_CONTROLLER_ENABLE_PROGRESSIVE_SYNCS=true`, or `applicationsetcontroller.enable.progressive.syncs: "true"` in `argocd-cmd-params-cm`). **This course does not enable it, and no lab or checkpoint depends on it.**
 >
 > Two facts answer the outline's "when *not* to depend on it," and both are genuinely surprising:
 >
 > 1. **`RollingSync` forces auto-sync _off_ on every generated Application.** The docs are explicit: "RollingSync will force all generated Applications to have autosync disabled," and it logs warnings for any generated app that had an automated `syncPolicy`. So turning on progressive sync silently changes the sync behavior of every app the ApplicationSet owns — a large, easy-to-miss side effect.
-> 2. **A stage that stalls can be promoted to `Healthy` by a _timeout_, not by actually becoming healthy.** An Application that stays in a progressing/pending state for `applicationsetcontroller.default.application.progressing.timeout` seconds (default **300**) is automatically moved along so the rollout can continue. A stage gate that "gives up after five minutes and declares success" is a *rollout convenience*, not a safety guarantee — do not treat it as a health gate you can trust for production promotion. *(This specific timeout-promotes-to-Healthy behavior is flagged for live re-confirmation — see the version notes at the end.)*
+> 2. **A stage that stalls can be promoted to `Healthy` by a _timeout_, not by actually becoming healthy.** An Application that stays in a progressing/pending state for `applicationsetcontroller.default.application.progressing.timeout` seconds (default **300**) is automatically moved along so the rollout can continue. A stage gate that "gives up after five minutes and declares success" is a *rollout convenience*, not a safety guarantee — do not treat it as a health gate you can trust for production promotion. *(This timeout behavior is documented for the Argo CD line this course targets; if you ever plan to rely on progressive sync in production, re-read it against your own version's Progressive Syncs documentation first.)*
 >
 > One boundary, stated once so nobody over-reaches: progressive sync is Argo CD's *fleet-level* staged rollout. Per-application canary or blue/green with traffic shifting is **Argo Rollouts'** job, a different tool. Do not expect canaries here.
 
@@ -502,7 +512,7 @@ For each, choose **ApplicationSet** or **App-of-Apps**, and say why in "derived 
 
 1. Deploy the same monitoring agent to **every** workload cluster Argo CD is registered with, today and as new clusters are added.
 2. Bootstrap a brand-new cluster with a **known, ordered** set of platform components: namespaces, then quotas, then network policies, then the agent.
-3. In one repo, let teams add an environment simply by **adding a folder** under `envs/`.
+3. In one repo, let teams add an environment by **adding a folder** under `envs/`.
 
 <details>
 <summary>Show answer and rationale</summary>
@@ -579,11 +589,13 @@ Representative output — **confirm against your VM's live environment** (Lab 4 
 
 ## 8. Common misconceptions
 
-**"A root Application's `Healthy` means its children are healthy."** It does not. A parent Application's health does **not**, by default, roll up the health of child *Applications* it manages — child-Application health is not assessed as part of the parent's health by default. A root can show `Healthy` while a child it created is `Degraded`. Always check the children directly (`argocd app get <child>`, or click into each node), and never read a green root as proof the whole tree is well. *(This "not assessed by default" behavior is flagged for live confirmation — see the version notes below.)*
+**"A root Application's `Healthy` means its children are healthy."** It does not. A parent Application's health does **not**, by default, roll up the health of child *Applications* it manages — child-Application health is not assessed as part of the parent's health by default. A root can show `Healthy` while a child it created is `Degraded`. Always check the children directly (`argocd app get <child>`, or click into each node), and never read a green root as proof the whole tree is well. You will see this for yourself in Lab 4, where a healthy root sits above a degraded child.
 
 **"`create-update` is always safe, so I can stop worrying about deletion."** `create-update` only means the factory will not *auto-delete* Applications when you remove their generator entry. Those Applications then become **orphans** — still running, no longer generated — and someone must delete them **deliberately**. "Safe" here means "deletion is now a human decision," not "deletion is handled for you." Forgetting the orphans is its own incident.
 
 **"The UI Preview tab is the stable way to preview."** It is not — the ApplicationSet web UI, including the Preview tab, is **Alpha since v3.5.0**, and its look, behavior, and underlying APIs may change or be removed. It is genuinely useful for eyeballing a diff, but the **portable, dependable** method is the CLI: `argocd appset generate <file>` (or `argocd appset create --dry-run <file>`). Build your habits and your Lab 4 muscle memory on the CLI; treat the UI Preview as a nice "you can also."
+
+**"We set `applicationsSync: create-update`, so our App-of-Apps tree is protected from cascading deletion too."** It is not, and this is the likely error the moment a team runs **both** patterns side by side (the decision table's last row). The two protections are different mechanisms guarding different objects. `applicationsSync: create-update` is a setting on an **ApplicationSet**, and all it does is stop the *ApplicationSet controller* from deleting Applications **it generated** when their generator entry disappears. **Cascading deletion in an App-of-Apps tree is decided by the `resources-finalizer.argocd.argoproj.io` finalizer on the root Application** — a completely separate mechanism, in a different object, enforced by Kubernetes rather than by the ApplicationSet controller. An `applicationsSync` value cannot protect a tree it does not generate, and a finalizer cannot stop a generator from removing an Application. Ask the two questions separately, every time: *what may the factory do to its own output?* (`applicationsSync`) and *what happens to the family tree when the root is deleted?* (the finalizer).
 
 **"ApplicationSets are the advanced pattern; App-of-Apps is the beginner one."** Neither is "more advanced." They solve different problems: **ApplicationSet = leverage** (a derived list, one edit moves many), **App-of-Apps = legibility** (a decided hierarchy you can read top to bottom). The wrong takeaway from this session is "always reach for ApplicationSets." The right one is "ask whether the list is derived or decided."
 
@@ -659,18 +671,6 @@ Save to: courseware/assets/screenshots/day-2/s05-03-root-app-tree.png -->
 1. **The root's managed resources are _other Applications_.** That is the whole App-of-Apps idea — a normal Application whose content is child Application manifests (`path: apps`).
 2. **This is the tree from V-20.** Trace root → the three named children → their workloads, and picture what a cascading delete would follow down these same edges.
 3. **The children were _decided_, not derived.** There is no generator here — a human wrote `platform-quotas`, `platform-netpol`, and `platform-agent` by name. That legibility is exactly why App-of-Apps is the right pattern for platform bootstrap.
-
----
-
-## Version and accuracy notes
-
-This course pins **Argo CD `v3.5.2`**; UI paths, CLI flags, and feature maturity here are written to that version. The following claims are version-sensitive and were checked against the `release-3.5` documentation; re-confirm against the live classroom instance before each delivery, and note them for the reviewer:
-
-- **ApplicationSet web UI (list, resource tree, Preview tab) is Alpha, since v3.5.0.** Confirmed on the `release-3.5` docs ("Alpha Feature (Since v3.5.0)"; "Edits in the Preview tab are never saved"; preview requires create-ApplicationSet permission). Because it is Alpha, screenshots SS-S5-01 and SS-S5-02 must be recaptured on any version change, and the CLI is the taught path.
-- **Progressive Syncs is Beta, since v3.3.0.** Confirmed on the `release-3.5` docs ("Beta Feature (Since v3.3.0)"). **`RollingSync` forcing auto-sync off on all generated Applications is confirmed** in those docs. The **timeout-promotes-a-stalled-stage-to-`Healthy`** behavior (`applicationsetcontroller.default.application.progressing.timeout`, default 300) is reported from Progressive-Syncs documentation but was **not re-read line-by-line this pass** — flagged for `technical-source-check`/`lab-tester` before final sign-off.
-- **`goTemplateOptions: ["missingkey=error"]` is opt-in, not the default** (kept off for backwards compatibility). Confirmed on the `release-3.5` GoTemplate docs.
-- **`argocd appset generate <file>`** (with `-o json|yaml|wide`) and **`argocd appset create --dry-run <file>`** both render without creating. Confirmed on the `release-3.5` command reference; **exact printed output shape is representative** here and is verified against the live environment in Lab 4.
-- **Child-Application health not assessed as part of a parent's health by default** (the Section 8 misconception) is a long-standing Argo CD behavior — flagged for a one-line live confirmation against `v3.5.2` before final sign-off.
 
 ---
 

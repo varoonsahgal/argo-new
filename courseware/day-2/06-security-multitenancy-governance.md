@@ -4,6 +4,28 @@
 > **Argo CD version this course targets: `v3.5.2`** (Helm chart `10.8.4`; the repo-server renders charts with **Helm v4.2.1**).
 > **What you need open:** nothing is required — this is a read-and-think session. There is one optional, read-only CLI (command-line interface) exercise at the end (Section 7) that tests an RBAC (role-based access control) policy file **offline**, creating and changing nothing. **Lab 5** is where you build a real fence around a new tenant and try to walk through it; this session gives you the mental model that makes Lab 5's error messages readable.
 
+> **Timing, accounted honestly (for you and your instructor).** The course allots this session **45 minutes**, and the table below covers *every* section, reading time included. Walked at full depth the blocks total about **58 minutes**, so four of them are marked *self-read* or *compressible*. Taking all four lands the session at roughly **47 minutes**; the last two come out of the V-23 debrief if your group is already comfortable with single sign-on. Nothing is removed from the file — compressed material stays here to read.
+>
+> | Block | Full depth | If time is short |
+> |---|---:|---|
+> | Section 1 — Why this matters | 3 min | |
+> | Section 2 — The three-fence mental model | 5 min | never cut: the whole session hangs off it |
+> | Section 3 — Vocabulary (14 terms) | 4 min | **self-read** before the session |
+> | Section 4 — V-22, the three fences and how each one fails | 5 min | never cut |
+> | Section 4 — V-23, SSO group → role mapping | 3 min | |
+> | Section 4 — V-24, secret-management patterns | 4 min | **compress** to its two rules (2 min) |
+> | Sections 5.1–5.2 — The real AppProject and the real RBAC policy | 9 min | |
+> | Sections 5.3–5.4 — Fence 3 recap and the shared ServiceAccount | 6 min | |
+> | Section 5.5 — An Argo CD denial next to a Kubernetes 403 | 4 min | never cut: Lab 5 is built on it |
+> | Section 5.6 — Governance controls, and why guardrails make the audit trail true | 3 min | |
+> | Section 6 — Quick Checks (three) | 5 min | **one live, two self-check** (2 min) |
+> | Section 8 — Misconceptions (five) | 3 min | |
+> | Section 9 — Key takeaways and transition | 2 min | |
+> | Screenshot gallery (SS-S6-01 to SS-S6-03) | 2 min | **self-read** |
+> | **Total** | **58 min** | **≈47 min** |
+>
+> Section 7 (Try It Yourself) is optional and sits **outside** this budget.
+
 **Where this sits in the course.** Session 5 and Lab 4 taught you to *scale* the deployment path — ApplicationSets and App-of-Apps let one change move many Applications. That is leverage, and leverage is exactly what makes governance urgent: the more an action can do, the more it matters *who* can take it and *what* it is allowed to touch. This session is about the fences that keep scale from becoming blast radius.
 
 **One promise up front, because it removes most of the confusion:** there are **three** independent fences in Argo CD, and almost every "Argo CD security" question is really "which of the three fences is this?" Get the three straight and the rest of the session is detail.
@@ -80,15 +102,13 @@ Each term gets a plain-language definition first, then its role. These are the w
 
 - **local account.** An account defined *inside* Argo CD itself (in `argocd-cm`), with a password Argo CD stores, used when there is no identity provider. In this lab, the local account **`team-a-dev`** stands in for "a member of an SSO group": mapping it to a role with `g, team-a-dev, role:team-a` behaves like mapping a real IdP group, so you can practice the governance without an IdP.
 
-- **project role.** A role defined *inside a single AppProject* (`spec.roles`), scoped to only that project's Applications. It is how a project owner grants narrow, project-local permissions without touching the global `policy.csv`.
-
-- **JWT project token.** A **JWT (JSON Web Token)** — a signed, self-contained credential string — issued *for a project role* and used by automation. It is the safe way to give a CI pipeline exactly the project-scoped permissions it needs, instead of a broad admin token like the one in Section 1's story.
+- **project role, and its JWT project token.** A **project role** is a role defined *inside a single AppProject* (`spec.roles`), scoped to only that project's Applications — how a project owner grants narrow, project-local permissions without touching the global `policy.csv`. A **JWT project token** is the credential issued *for* such a role and used by automation: a **JWT (JSON Web Token)** is a signed, self-contained credential string. Together they are the safe replacement for the broad admin token in Section 1's story.
 
 - **separation of duties.** The governance principle that the people who *set* the boundaries (the platform team, who own AppProjects, `policy.csv`, and cluster credentials) are not the same people who *operate within* them (the application teams, who own their app's Git manifests). It is the organizational shape the three fences are built to support.
 
-- **sync window.** A schedule attached to an AppProject that **allows** or **denies** syncing during a time range — a change freeze expressed as configuration. A deny window can still permit *manual* syncs if `manualSync` is set, which makes the escape hatch itself auditable.
+One more term, **sync window**, is defined in one line where it first matters (the governance table in Section 5.6), because that is where it gets its full treatment.
 
-Two acronyms used throughout: **CI** (continuous integration) and **UI** (user interface); **CLI** is the command-line interface, and **CSV** is comma-separated values.
+Two acronyms used throughout: **CI** (continuous integration) and **UI** (user interface); **CLI** is the command-line interface.
 
 ---
 
@@ -116,19 +136,22 @@ Follow a single request left to right. Each fence is a different system with a *
          └───────┬───────┘      └───────┬───────┘      │   │   └───────┬────────┘    │
                  │ DENY                 │ DENY         │   │           │ DENY         │
                  ▼                      ▼              │   │           ▼              │
-        "permission denied:   "... is not permitted   │   │  "forbidden: User        │
-         applications, sync,   in project 'store-     │   │   \"system:service-      │
-         storefront/... "      front'"                │   │   account:argocd-access: │
-                                                       │   │   argocd-manager\"       │
-        ── SYNC NEVER STARTS ──   ── SYNC NEVER ───    │   │   cannot create ..."     │
-                                     STARTS            │   │  ── SYNC STARTED,        │
-                                                       │   │     THEN FAILED ──       │
+        "permission denied"   condition                │   │  "forbidden: User        │
+        (terse, to you; the   InvalidSpecError:        │   │   \"system:service-      │
+         detail is in the     "... do not match any   │   │   account:argocd-access: │
+         argocd-server log)    of the allowed          │   │   argocd-manager\"       │
+                               destinations in         │   │   cannot create ..."     │
+        ── NOTHING IS ──       project '...'"          │   │  ── SYNC STARTED,        │
+           APPLIED            ── NOTHING IS ──         │   │     THEN FAILED ──       │
+                                 APPLIED               │   │                          │
    └────────────────────────────────────────────────┘   └────────────────────────┘
         Owned by: platform team's       Owned by: platform team's     Owned by: workload-cluster
         policy.csv                      AppProject YAML               RBAC (Role/RoleBinding)
 ```
 
 **The one question:** *did a sync operation run?* If no operation ever started, the refusal was inside Argo CD — fence 1 (a person/verb it does not allow) or fence 2 (an app pointing where its project forbids). If an operation started and then failed with `forbidden`, it was fence 3 — the cluster credential. That single question routes you to the right fence, the right error text, and the right *team* to talk to.
+
+**One refinement, so the question never misleads you.** A fence-2 refusal usually produces no operation at all: Argo CD marks the Application with an `InvalidSpecError` condition and stops. But if someone *presses Sync anyway* on such an Application, an operation **is** recorded — and it ends instantly, with `Phase: Error`, a duration of `0s`, and **not a single resource result row.** So the sharper form of the question is: *did anything on the cluster actually get touched?* Fences 1 and 2 touch nothing. Fence 3 is the one where Argo CD genuinely started applying and the cluster pushed back partway through.
 
 Notice the ownership line at the bottom. It is this session's through-line: **who owns the field decides where the fix goes.** A fence-1 problem is fixed in `policy.csv`; a fence-2 problem is fixed in the AppProject; a fence-3 problem is fixed in the workload cluster's Roles.
 
@@ -283,39 +306,51 @@ Two properties are worth restating because auditors ask about them:
 
 Here is the fact that makes fence 2 carry so much weight. **Every** Application's sync — `storefront`'s, `team-a`'s, anyone's — runs as the **same** `argocd-manager` ServiceAccount on the workload cluster. From the cluster's point of view there is exactly one client. Kubernetes literally **cannot tell your tenants apart.**
 
-That has a sharp consequence: **for tenancy, Argo CD is the only fence you have.** Kubernetes RBAC (fence 3) can stop *any* Argo CD write to a forbidden namespace or kind, but it cannot say "this write is `team-a`'s and that one is `storefront`'s" — they are the same identity to the cluster. So the thing that actually keeps `team-a` out of `storefront`'s namespaces is the **AppProject `destinations` list** (fence 2), not Kubernetes. If your auditor asks "how does the cluster know which team deployed this?", the honest answer is "it does not — Argo CD's AppProject does." *(Argo CD documents an advanced "sync using impersonation" feature that gives each destination its own ServiceAccount, which would change this answer; treat it as a named direction to investigate, not a lab step — its maturity at v3.5.2 is not confirmed here.)*
+That has a sharp consequence: **for tenancy, Argo CD is the only fence you have.** Kubernetes RBAC (fence 3) can stop *any* Argo CD write to a forbidden namespace or kind, but it cannot say "this write is `team-a`'s and that one is `storefront`'s" — they are the same identity to the cluster. So the thing that actually keeps `team-a` out of `storefront`'s namespaces is the **AppProject `destinations` list** (fence 2), not Kubernetes. If your auditor asks "how does the cluster know which team deployed this?", the honest answer is "it does not — Argo CD's AppProject does." *(Argo CD documents an advanced "sync using impersonation" feature that gives each destination its own ServiceAccount, which would change this answer — "impersonation" here means Argo CD deliberately acts through a narrower, destination-specific ServiceAccount, not an attacker impersonating anyone. Treat it as a named direction to investigate, not a lab step, and check its maturity against your own Argo CD version before relying on it.)*
 
 ### 5.5 Contrast in the wild: an Argo CD denial vs a Kubernetes 403
 
-Now the payoff. Two failures that *look* identical in the UI and are diagnosed by the one question from V-22. The `team-a` AppProject permits `NetworkPolicy` at the project level, **but** the workload cluster's least-privilege RBAC deliberately does **not** grant `team-a`'s writes NetworkPolicy access — a perfect two-fence contrast.
+Now the payoff. Two failures that *look* identical in the UI and are told apart by the one question from V-22.
 
-**Case A — a fence-2 (AppProject) denial.** Someone points a `team-a` Application at the `storefront-prod` namespace, which is **not** in `team-a`'s `destinations`. Argo CD refuses it *before any sync runs*, with a message of this shape:
+> **Read these two cases as illustrations, not as objects in your lab.** They use a **hypothetical** tenant called `payments` — another team at another company running this same platform, with its own `payments` AppProject and its own `payments` namespace on a workload cluster. No project, namespace, or file named below exists in your environment. What transfers is the *shape* of each message; Lab 5 makes you read that shape against different objects, which is the actual skill.
+
+The setup is a deliberate **asymmetry**, and it is extremely common in real platforms: the `payments` AppProject **permits** the `NetworkPolicy` kind (a Kubernetes object that controls which pods may talk to which), while the workload cluster's own least-privilege ServiceAccount was **never granted** permission to create NetworkPolicies in that namespace. Two fences, two different answers about the same object. That asymmetry is what makes the pair diagnosable rather than merely annoying.
+
+**Case A — a fence-2 (AppProject) denial.** An engineer points a `payments` Application at the `platform-system` namespace — where the platform team's own components live — which is **not** in the `payments` project's `destinations`. Argo CD refuses it *before any sync runs*, and records the refusal as a **condition** on the Application rather than as a failed sync. Run `argocd app get <app>` and the condition block reads in this shape:
 
 ```text
-application destination { server: https://k3d-workload-server-0:6443, namespace: storefront-prod }
-is not permitted in project 'team-a'
+CONDITION         MESSAGE
+InvalidSpecError  application destination server 'https://k3d-workload-server-0:6443' and
+                  namespace 'platform-system' do not match any of the allowed destinations
+                  in project 'payments'
 ```
 
-No operation started. The fix lives in the **AppProject** (fence 2) — either the destination is genuinely wrong (fix the app) or the project should permit it (a platform-team decision).
+Two details to fix in memory, because they are what you will actually search for. The condition **type** is `InvalidSpecError` — the spec itself is invalid against its project, which is why it never becomes a sync problem. And the searchable phrase is **`do not match any of the allowed destinations in project`**, in single quotes around the names.
 
-**Case B — a fence-3 (Kubernetes) denial.** A *permitted* `team-a` Application — correct repo, correct destination — tries to **sync a NetworkPolicy.** The AppProject allows the kind, so Argo CD **starts the sync**; then the workload cluster's API server refuses the write, and the `forbidden` error appears **inside the sync result**:
+No operation started. (If someone presses Sync regardless, the operation is recorded and ends immediately with `Phase: Error`, `Duration: 0s`, and **no resource rows at all** — nothing on the cluster is touched.) The fix lives in the **AppProject** (fence 2) — either the destination is genuinely wrong (fix the app) or the project should permit it (a platform-team decision).
+
+**Case B — a fence-3 (Kubernetes) denial.** A *permitted* `payments` Application — correct repo, correct destination, project-approved kind — tries to sync the NetworkPolicy declared at `manifests/network/default-deny.yaml`. The AppProject allows the kind, so Argo CD **starts the sync**; then the workload cluster's API server refuses the write, and the `forbidden` error appears **inside the sync result**:
 
 ```text
 networkpolicies.networking.k8s.io is forbidden: User
 "system:serviceaccount:argocd-access:argocd-manager" cannot create resource
-"networkpolicies" in API group "networking.k8s.io" in the namespace "team-a"
+"networkpolicies" in API group "networking.k8s.io" in the namespace "payments"
 ```
 
 A sync operation **ran** and **failed**. The fix lives on the **workload cluster** (fence 3) — a Role/RoleBinding decision — not in Argo CD at all.
 
-Same red badge. Opposite systems, opposite owners, opposite fixes. The question "*did a sync operation run?*" separated them in one step. *(Exact message wording is confirmed by Lab 5 against the live v3.5.2 instance — see the version notes; the shapes above match the environment's real ServiceAccount and project names.)*
+Same red badge. Opposite systems, opposite owners, opposite fixes. The question "*did a sync operation run?*" — in its sharper form from V-22, *did anything on the cluster actually get touched?* — separated them in one step.
+
+Two reading notes before you meet these for real. First, the ServiceAccount named in Case B — `argocd-manager` in namespace `argocd-access` — **is** the real identity your Argo CD uses on the workload cluster, so that part of the text will look familiar when you hit a genuine fence-3 denial; only the tenant, the namespace, and the file path above are invented. Second, exact message wording shifts between Argo CD versions and between Kubernetes versions: read for the **signature** (a subject and a verb; an `InvalidSpecError` condition saying the destination does not match the project's allowed destinations; "forbidden … serviceaccount"), never for a character-for-character match.
 
 ### 5.6 Governance features that ride on the fences
 
-Two more governance controls, named because the outline requires them and because they are exactly what an audit conversation turns on:
+Two more governance controls ride on top of the three fences. Both are exactly what an audit conversation turns on, so here they are as a compact reference:
 
-- **API accounts and tokens (for approved automation).** The safe replacement for Section 1's over-powered token is a **project role** with a scoped **JWT project token**: a role defined *inside* the `team-a` project, granted only `sync` on `team-a/*`, and issued a signed token used by CI. A typo in that pipeline could not touch `storefront-prod`, because the token's fence-1 permissions never reach it. The lesson from the opening story is not "tokens are dangerous" — it is "tokens should be *scoped*, and admin tokens should not live in pipelines." Removing routine admin access (SSO admins by group, only when needed) is the same idea for humans.
-- **Deployment windows / higher-environment controls.** An AppProject can carry **sync windows** — allow/deny rules with a schedule and duration, scoped to applications, namespaces, or clusters. A deny window is a change freeze written as configuration; the interesting part is the **escape hatch**: `manualSync: true` lets a named person sync manually during the freeze, and *that use is itself recorded.* The governance question is never "is there a freeze?" but "who may bypass it, and does the bypass show up afterward?" You will see the sync-windows panel in SS-S6-03. *(Sync-window schedule syntax and the `argocd proj windows` CLI are flagged for a 3.5 confirmation in the version notes.)*
+| Control | What it is, and where it lives | The governance question it answers |
+|---|---|---|
+| **API account and scoped token** | A **project role** (defined inside one AppProject's `spec.roles`) issued a **JWT project token** — for example a role inside the `team-a` project granted only `sync` on `team-a/*`, whose signed token the CI pipeline uses. Permissions are enforced at **fence 1**. | *"What can this credential do?"* A typo in that pipeline could not touch `storefront-prod`, because the token's fence-1 permissions never reach it. The lesson of Section 1's story is not "tokens are dangerous" — it is "tokens should be **scoped**, and admin tokens should not live in pipelines." Removing routine admin access (SSO admins by group, only when needed) is the same idea applied to humans. |
+| **Deployment window** (higher-environment control) | A **sync window**: an entry on the AppProject that **allows** or **denies** syncing during a time range, with a schedule, a duration, and a scope (applications, namespaces, or clusters). A deny window is a change freeze expressed as configuration. Its escape hatch is `manualSync: true`, which lets a named person sync by hand during the freeze — and that use is itself a recorded sync. You will see the panel in SS-S6-03. | *"Who may bypass the freeze, and does the bypass show up afterward?"* — never merely "is there a freeze?" A freeze nobody can audit is a rule, not a control. |
 
 And the through-line that ties every fence together: **guardrails are what make the audit trail true.** "Every deployment is a commit, so we have a complete audit trail" is only true if nobody can deploy *without* going through Argo CD. If engineers keep direct `kubectl` write access to the workload clusters, the Git history is a record of what people *usually* did. The fences are not bureaucracy layered on GitOps — they are the precondition that makes GitOps' central claim factual.
 
@@ -327,20 +362,20 @@ Answer each in your head (or on paper) **before** opening the collapsed answer. 
 
 ### S6-QC1 — Name the fence that denied each request
 
-You are handed three real error messages from the course environment. For each, name **which fence refused it** (Argo CD RBAC, AppProject, or Kubernetes RBAC) and state the one piece of evidence that tells you.
+You are handed three pieces of evidence, all from the hypothetical `payments` tenant of Section 5.5. For each, name **which fence refused it** (Argo CD RBAC, AppProject, or Kubernetes RBAC) and state the one piece of evidence that tells you.
 
-1. `permission denied: applications, sync, storefront/storefront-prod, sub: team-a-dev`
-2. `application destination { server: https://k3d-workload-server-0:6443, namespace: storefront-prod } is not permitted in project 'team-a'`
-3. `networkpolicies.networking.k8s.io is forbidden: User "system:serviceaccount:argocd-access:argocd-manager" cannot create resource "networkpolicies" in API group "networking.k8s.io" in the namespace "team-a"`
+1. An engineer's terminal printed only `permission denied`. In the `argocd-server` pod's log, the matching line reads: `permission denied: applications, get, payments/payments-web, sub: dana, iat: ...`
+2. An Application carries the condition `InvalidSpecError`, with the message `application destination server 'https://k3d-workload-server-0:6443' and namespace 'platform-system' do not match any of the allowed destinations in project 'payments'`
+3. `networkpolicies.networking.k8s.io is forbidden: User "system:serviceaccount:argocd-access:argocd-manager" cannot create resource "networkpolicies" in API group "networking.k8s.io" in the namespace "payments"`
 
 <details>
 <summary>Show answer and rationale</summary>
 
-1. **Argo CD RBAC (fence 1).** Evidence: `permission denied` naming a **subject** (`sub: team-a-dev`) and a **verb** (`sync`). The request was refused because of *who asked and what they asked for* — `team-a-dev` has no permission over `storefront/*`. No sync operation ran. Fix lives in `policy.csv`.
-2. **AppProject (fence 2).** Evidence: **`is not permitted in project 'team-a'`** — the refusal is about *where the app points*, not who asked. The destination namespace is not in the project's `destinations`. No sync operation ran. Fix lives in the AppProject YAML (or the app is pointed wrong).
+1. **Argo CD RBAC (fence 1).** Evidence: `permission denied` with a log line naming a **subject** (`sub: dana`) and a **verb** (`get`). The request was refused because of *who asked and what they asked for.* Note the two-part shape, which surprises people: what the user sees can be the bare words `permission denied`, while the useful detail — subject, verb, and object — is written to the **`argocd-server` log**. If you are ever handed only "permission denied," that log is where the rest of the sentence lives. Nothing was applied. Fix lives in `policy.csv`.
+2. **AppProject (fence 2).** Evidence: the condition type **`InvalidSpecError`** and the phrase **`do not match any of the allowed destinations in project`** — the refusal is about *where the app points*, not who asked. The destination namespace is not in the project's `destinations`. No sync operation ran, and nothing was applied. Fix lives in the AppProject YAML (or the app is pointed wrong).
 3. **Kubernetes RBAC (fence 3).** Evidence: **`forbidden`** naming the **ServiceAccount** `system:serviceaccount:argocd-access:argocd-manager`. This came from the *cluster's* API server, which means the sync **started and then failed** — Argo CD had already decided to act. Fix lives on the workload cluster (a Role/RoleBinding), not in Argo CD.
 
-**Rationale:** the routing question is *did a sync operation run?* Messages 1 and 2 refused the request *before* any operation (Argo CD's two fences); message 3 refused a write *during* an operation (the cluster's fence). Then the exact words confirm it: a **subject+verb** = fence 1, **"not permitted in project"** = fence 2, **"forbidden … serviceaccount"** = fence 3.
+**Rationale:** the routing question is *did anything on the cluster get touched?* Evidence 1 and 2 refused the request before any resource was applied (Argo CD's two fences); evidence 3 refused a write *during* an operation (the cluster's fence). Then the exact words confirm it: a **subject+verb** (in the message or in the server log) = fence 1, **`InvalidSpecError` / "do not match any of the allowed destinations"** = fence 2, **"forbidden … serviceaccount"** = fence 3.
 </details>
 
 ### S6-QC2 — Why should only administrators create ApplicationSets?
@@ -431,13 +466,17 @@ Yes
 - **3 → `No`:** the object `storefront/storefront-prod` does not match `team-a/*`, so the role's allow lines never apply. This is fence 1 stopping a cross-tenant request before any app or cluster is touched.
 - **The point:** every one of those answers came from a **text file**, with no cluster and no risk. That is where an RBAC change belongs — tested in CI, before your users discover the bug by hitting it. (Clean up with `rm /tmp/s6-policy.csv` when done.)
 
+**One flag to remember for the live variant.** The command above reads a file, so it needs `--policy-file`. If you instead want to ask the question against the **policy your running Argo CD is actually using**, swap that flag for `--namespace argocd` (the namespace Argo CD is installed in), like this: `argocd admin settings rbac can team-a-dev sync applications 'team-a/team-a-guestbook' --namespace argocd`. Argo CD requires **exactly one** of the two flags; supplying neither fails with `please provide exactly one of --policy-file or --namespace`.
+
 ---
 
 ## 8. Common misconceptions
 
-**"AppProject restrictions are Kubernetes RBAC."** They are not — an AppProject is **Argo CD's own admission layer** (fence 2), enforced by Argo CD *before* it ever contacts the cluster. A `destinations` violation is refused with `is not permitted in project '...'` and **no sync runs.** Kubernetes RBAC (fence 3) is a *different* system on the *workload* cluster that refuses a write *during* a sync with `forbidden ... serviceaccount`. Confusing them sends you to fix the wrong file, owned by the wrong team. The tell is always the same: did a sync operation run?
+**"AppProject restrictions are Kubernetes RBAC."** They are not — an AppProject is **Argo CD's own admission layer** (fence 2), enforced by Argo CD *before* it ever contacts the cluster. A `destinations` violation is refused with an `InvalidSpecError` condition reading `... do not match any of the allowed destinations in project '...'`, and **nothing is applied.** Kubernetes RBAC (fence 3) is a *different* system on the *workload* cluster that refuses a write *during* a sync with `forbidden ... serviceaccount`. Confusing them sends you to fix the wrong file, owned by the wrong team. The tell is always the same: did anything on the cluster actually get touched?
 
 **"The `default` project is safe to use."** The `default` AppProject is the **most permissive** object in a fresh install — `sourceRepos: ['*']`, any destination, all cluster resource kinds. An Application with no `project` set lands there and is fenced by *nothing.* "It has a project" is not "it has a boundary." Put real apps in real projects, and **empty** `default`'s allow-lists as a hardening step (you will do exactly this in Lab 5 and watch a scratch app stop syncing).
+
+**"An AppProject with an empty `clusterResourceWhitelist` is unset, so it allows everything."** It is the opposite: **empty means deny.** `clusterResourceWhitelist: []` permits **no cluster-scoped resource kinds at all** — no ClusterRoles, no CustomResourceDefinitions, no Namespaces. The trap is that an empty list *looks* like a field nobody filled in, and in many configuration systems an unset list does mean "no restriction." An AppProject is a **positive** list: it permits exactly what it names and refuses everything else, so an empty list names nothing and therefore permits nothing. Read `[]` as a closed gate, not an open one — and, by the same reading rule, notice that `['*']` (what the `default` project ships with) is the genuinely open gate.
 
 **"A sealed Secret in Git is the same as a plaintext Secret in Git."** They are opposites. A plaintext `Secret` in Git carries a **base64-encoded** value — encoding, not encryption — that anyone with repo read can decode in one command, and Git keeps it forever. A **SealedSecret** in Git carries **ciphertext** that only the in-cluster controller's private key can decrypt; repo read reveals nothing usable. One is a leaked secret; the other is a safe *pointer* to a secret. "It's in Git either way" misses the entire point of the pattern.
 
@@ -448,7 +487,7 @@ Yes
 ## 9. Key takeaways
 
 - **Three fences, three questions.** Argo CD RBAC asks *are you allowed to ask?*; the AppProject asks *may this app point there?*; Kubernetes RBAC asks *may the cluster credential do it?* Almost every Argo CD security question is "which fence is this?"
-- **One question routes you: *did a sync operation run?*** No operation = Argo CD (fence 1 or 2); operation started then failed = Kubernetes (fence 3). The exact words confirm it — subject+verb, "not permitted in project", or "forbidden … serviceaccount."
+- **One question routes you: *did anything on the cluster get touched?*** Nothing applied = Argo CD (fence 1 or 2); an operation that started and then failed = Kubernetes (fence 3). The exact words confirm it — a subject and a verb (sometimes only in the `argocd-server` log), the condition `InvalidSpecError` with "do not match any of the allowed destinations in project", or "forbidden … serviceaccount."
 - **Who owns the field decides where the fix goes.** Fence 1 → `policy.csv`; fence 2 → the AppProject; fence 3 → the workload cluster's Roles. The error message is a routing slip to a team.
 - **Identity from the IdP, permission from Argo CD.** SSO maps a *group* to a *role* (`g, group, role`); you stop managing people inside Argo CD, and routine admin access can be removed. The lab's local account `team-a-dev` stands in for a group.
 - **Every tenant syncs as the same ServiceAccount.** Kubernetes cannot tell tenants apart, so the **AppProject** is the only tenancy fence you have.
@@ -519,20 +558,6 @@ Save to: courseware/assets/screenshots/day-2/s06-03-sync-window.png -->
 
 ---
 
-## Version and accuracy notes
-
-This course pins **Argo CD `v3.5.2`**; UI paths, CLI flags, and message shapes here are written to that version. The following claims are version-sensitive; those marked *confirmed* were checked during authoring, and the rest are flagged for `lab-tester`/`technical-source-check` before final sign-off:
-
-- **`argocd admin settings rbac can <subject> <action> <resource> <object> --policy-file <csv>` — CONFIRMED at v3.5.2.** The Section 7 command, argument order, and the `Yes`/`No` output were run against the course's `argocd` v3.5.2 client during authoring, using the real `team-a` policy CSV. Note the argument shape: the resource *type* (`applications`) and the *object* (`team-a/team-a-guestbook`) are **separate** arguments; passing the object where the resource type belongs errors with "not a valid resource name." Participants should still confirm the output on their own VM.
-- **The AppProject denial string** (`... is not permitted in project '...'`) matches the wording already used in the Lab 3 guide and the environment's screenshot manifest; the **exact** rendering (field order inside the destination object) is confirmed by `lab-tester` against the live instance in Lab 5.
-- **The Kubernetes `forbidden` string** naming `system:serviceaccount:argocd-access:argocd-manager` matches the real workload ServiceAccount (`argocd-manager` in `argocd-access`) and the environment's screenshot manifest; the exact resource-name/API-group text is the cluster's standard 403 wording and is confirmed empirically in Lab 5.
-- **SSO is conceptual only in this course.** Dex is disabled and there is **no identity provider**; the local account `team-a-dev` stands in for an SSO group. No OIDC/IdP configuration is taught or demonstrated (blueprint R-5).
-- **Secret management (V-24):** Argo CD's documentation recommends destination-cluster secret management (Sealed Secrets, External Secrets Operator, Secrets Store CSI Driver, Vault-based operators, and others) over render-time injection, and stores rendered manifests in Redis in plaintext — confirmed via the operator-manual secret-management docs. Tool categories only; no tool is evaluated.
-- **Sync windows (SS-S6-03, Section 5.6):** the AppProject sync-window fields (kind, schedule, duration, scope, `manualSync`) and the `argocd proj windows` CLI are documented, but the **exact schedule syntax and CLI at v3.5.2** are flagged for a source check before any step depends on them; this session only *describes* windows.
-- **Sync-using-impersonation** (`AppProject.spec.destinationServiceAccounts`) is named once as a direction to investigate; its availability and maturity at v3.5.2 are **not** confirmed here and it is not a lab step.
-
----
-
 ## Transition — to Lab 5
 
-You now have the three-fence model and the one diagnostic question that reads any denial. **Lab 5 (Enforce Platform Guardrails)** turns that model into muscle memory, and its whole shape is a **guardrail bypass attempt**: you will fence in the new `team-a` tenant, then *genuinely try to walk through the fence* and read the exact error each time. You will empty the `default` project and watch a scratch app stop syncing (hardening breaks things too — on purpose). You will trigger a **fence-2** denial (a destination not permitted in the project) and a **fence-3** denial (a NetworkPolicy the ServiceAccount may not create) minutes apart, and answer the question that makes it stick: *which team do you page?* You will confirm a denial with `argocd admin settings rbac can` **before** hitting it, and protect a tenant's Applications from unintended deletion. Bring the one question with you — *did a sync operation run?* — because Lab 5 is where you learn to trust your own answer.
+You now have the three-fence model and the one diagnostic question that reads any denial. **Lab 5 (Enforce Platform Guardrails)** turns that model into muscle memory, and its whole shape is a **guardrail bypass attempt**: you will fence in the new `team-a` tenant, then *genuinely try to walk through the fence* and read the exact error each time. You will empty the `default` project and watch a scratch app stop syncing (hardening breaks things too — on purpose). You will trigger a **fence-2** denial (an Application pointed at a destination its project does not allow) and a **fence-3** denial (a resource the workload cluster's ServiceAccount may not create) minutes apart, and answer the question that makes it stick: *which team do you page?* You will confirm a denial with `argocd admin settings rbac can` **before** hitting it, and protect a tenant's Applications from unintended deletion. Bring the one question with you — *did anything on the cluster actually get touched?* — because Lab 5 is where you learn to trust your own answer.

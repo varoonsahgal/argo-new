@@ -3,7 +3,29 @@
 > **Day 2 · Session 7 · Concept guide · ~75 minutes**
 > **Argo CD version this course targets: `v3.5.2`** (Helm chart `10.8.4`; the repo-server renders charts with **Helm v4.2.1**). Kubernetes on the lab clusters is **k3s v1.35.8**.
 > **What you need open:** nothing is required — this is a read-and-think session that prepares you for the capstone. There is one optional, **read-only** command-line exercise at the end (Section 9) that copies Argo CD's own configuration out to a file and changes nothing.
-> **Time budget (this session is the densest in the course).** Spend about **30 minutes** on the six-step troubleshooting method (Sections 2, 4, and 5 — the part never to cut), about **25 minutes** on stability, observability, and scale (Section 6), and about **20 minutes** on backup, recovery, upgrades, and custom builds (Section 7). If time runs short, the internal-fork checklist (Section 7.4) is the one block designed to be compressed to a three-minute discussion.
+> **Timing, accounted honestly (for you and your instructor) — this session is the densest in the course.** The course allots **75 minutes**. The table below covers *every* section, reading time included, and the honest total at full depth is about **95 minutes**. That gap is real, and it is stated here rather than absorbed by silently rushing: six blocks are marked *self-read* or *compressible*, and taking all six lands the session at roughly **77 minutes**. If you reach Section 7 with fewer than 15 minutes left, take Section 7.4 as a single sentence — "a fork moves you from *consuming* upstream's work to *producing* it" — and read its checklist afterward. Nothing is removed from the file either way.
+>
+> | Block | Full depth | If time is short |
+> |---|---:|---|
+> | Section 1 — Why this matters | 3 min | |
+> | Section 2 — The pipeline mental model and the six steps | 6 min | never cut |
+> | Section 3 — Vocabulary (13 terms) | 4 min | **self-read** before the session |
+> | Section 4 — V-25, the six-step pipeline with its evidence commands | 7 min | never cut |
+> | Section 5 — The worked incident, all six steps | 15 min | never cut |
+> | Sections 6.1–6.2 — HA behavior and controller sharding | 9 min | |
+> | Section 6.3 — Repo-server pressure and monorepos | 4 min | |
+> | Section 6.4 — Observability, metrics, and alert design | 6 min | |
+> | Section 6.5 — Health checks and ignore rules | 5 min | |
+> | Section 6.6 — Capacity-factor table | 2 min | **self-read** (it is a reference table) |
+> | Sections 7.1–7.2 — Backup, and recovery from a lost management cluster | 8 min | |
+> | Section 7.3 — Upgrades and version matching | 6 min | |
+> | Section 7.4 — Operating an internal fork | 6 min | **compress** to a 3-minute discussion |
+> | Section 8 — Quick Checks (four) | 8 min | **two live, two self-check** |
+> | Section 10 — Common misconceptions (four) | 3 min | **self-read** |
+> | Section 11 — Key takeaways and transition | 2 min | **self-read** |
+> | **Total** | **95 min** | **≈77 min** |
+>
+> Section 9 (Try It Yourself) is optional and sits **outside** this budget.
 
 **Where this sits in the course.** Every earlier session gave you one piece of the picture: Session 2 named the six components and gave each a verb; Session 3 covered installing and configuring the platform; Session 4 covered how Helm charts are rendered and synced; Sessions 5 and 6 scaled and fenced the deployment path. This session ties all of it into a single skill — **diagnosing a real incident under time pressure without making it worse** — and then covers the lifecycle jobs an operator owns: keeping Argo CD stable, backing it up, and upgrading it safely.
 
@@ -68,17 +90,13 @@ Hold that table in your head. The rest of this session hangs off it.
 
 ## 3. Vocabulary, grounded before we use it
 
-Each term gets a plain-language definition first, then its role. These are the words this session introduces; the capstone uses them freely.
+Each term gets a plain-language definition first, then its role. These thirteen are the words this session introduces; the capstone uses them freely. Four more — **OOMKilled**, **SLA**, **JSON**, and **provenance** — are defined in one line at the moment they first matter (Sections 5, 6.4, 6.5, and 7.4 respectively), because none of them needs a full entry to be usable.
 
-- **HA (high availability).** A way of running software so that losing one copy of a component does not take the service down. In practice it means running **more than one replica** of each component and, for stateful pieces, a topology that survives a node failure. Argo CD ships an HA install mode; this course runs the smaller **non-HA** install (one replica of each component), which is perfect for learning failure behavior because you can watch a single pod's outage directly.
-
-- **replica.** One running copy of a component (one pod, or for the controller one `StatefulSet` member). "Two replicas of the repo-server" means two pods sharing the rendering work.
+- **HA (high availability), and replica.** A **replica** is one running copy of a component — one pod, or for the application-controller one `StatefulSet` member; "two replicas of the repo-server" means two pods sharing the rendering work. **HA** is a way of running software so that losing one copy does not take the service down: in practice, more than one replica of each component and, for stateful pieces, a topology that survives a node failure. Argo CD ships an HA install mode; this course runs the smaller **non-HA** install (one replica of each component), which is ideal for learning failure behavior because you can watch a single pod's outage directly.
 
 - **sharding.** Splitting a workload across several replicas so each replica handles only part of it. For Argo CD's application-controller, **the unit that gets split is the *cluster*, not the Application** — each replica (shard) owns a set of whole clusters. This one fact explains a lot of scaling surprises (Section 6.2).
 
 - **reconciliation queue.** The application-controller's internal to-do list of Applications waiting to be re-examined. Argo CD keeps two such queues — one for *reconciliation* (recomputing status, measured in milliseconds) and one for *syncing* (applying changes, measured in seconds). Workers pull from these queues; the number of workers is set by `--status-processors` (default 20) and `--operation-processors` (default 10). When the queue grows faster than the workers drain it, everything gets slower — a classic scale symptom.
-
-- **OOMKilled (Out Of Memory Killed).** What Kubernetes does to a pod that tries to use more memory than its limit allows: it terminates the process. "The repo-server was OOMKilled" means rendering demanded more memory than the pod was allowed, so Kubernetes killed it. You see it as `OOMKilled` in `kubectl describe pod`.
 
 - **custom health check (Lua).** Argo CD decides whether a resource is `Healthy`, `Progressing`, `Degraded`, or `Missing` using built-in rules — but for custom resource types it does not recognize, you can teach it a rule written in **Lua** (a small scripting language embedded in Argo CD). A custom health check is a short Lua script, configured in the `argocd-cm` ConfigMap, that reads a resource's fields and returns a health verdict. It is how you make a `Healthy` badge *mean* something for a CRD Argo CD has never seen.
 
@@ -86,9 +104,7 @@ Each term gets a plain-language definition first, then its role. These are the w
 
 - **`ignoreDifferences`.** A configuration that tells Argo CD to **stop treating a specific field as drift.** Without it, any field the cluster changes after you deploy — a replica count a horizontal autoscaler edits, a value an admission webhook injects — would make the Application permanently `OutOfSync` for a reason no human can fix. `ignoreDifferences` silences that noise. Used carelessly, the same mechanism can silence a *real* change forever (Section 6.5).
 
-- **JSON (JavaScript Object Notation) / YAML (YAML Ain't Markup Language).** Two text formats for structured data. Kubernetes manifests are usually written in YAML; some Argo CD settings (like the pointers inside an `ignoreDifferences` rule) use JSON-style path expressions to name a single field.
-
-- **`argocd admin export` / `argocd admin import`.** A pair of Argo CD commands. **Export** reads Argo CD's own Kubernetes objects (its Applications, projects, config, and secrets) out of a cluster and writes them to one YAML file. **Import** reads that file back into a cluster. Together they are the backup-and-restore path for the parts of Argo CD's state that live only in the cluster.
+- **`argocd admin export` / `argocd admin import`.** A pair of Argo CD commands. **Export** reads Argo CD's own Kubernetes objects (its Applications, projects, config, and secrets) out of a cluster and writes them to one **YAML (YAML Ain't Markup Language** — the text format Kubernetes manifests are written in) file. **Import** reads that file back into a cluster. Together they are the backup-and-restore path for the parts of Argo CD's state that live only in the cluster.
 
 - **etcd.** The database Kubernetes itself uses to store every object. When we say "Argo CD's real state is Kubernetes objects," we mean those objects live in the management cluster's etcd — which is exactly why losing that cluster is the scenario worth planning for.
 
@@ -99,10 +115,6 @@ Each term gets a plain-language definition first, then its role. These are the w
 - **CVE (Common Vulnerabilities and Exposures).** A publicly catalogued security flaw, each with an identifier like `CVE-2024-12345`. When a CVE is found in Argo CD, the upstream project publishes a patched release. Whether *you* consume that patch or have to *produce* it yourself is the whole cost story of running a fork (Section 7.4).
 
 - **internal fork.** A private copy of Argo CD's source code that your organization has modified and builds itself, instead of running the official released images. A fork can be necessary — but it changes who is responsible for security patches, image provenance, and testing, permanently (Section 7.4).
-
-- **provenance.** A verifiable record of *where a software image came from and how it was built* — which source commit, which build system, which signatures. It is what lets you prove the image running in production is the one you meant to build and not something tampered with.
-
-- **SLA (service-level agreement).** A commitment about how available or fast a service will be (for example, "synced within five minutes of a merge, 99.9% of the time"). SLAs matter here because they turn vague "keep Argo CD healthy" into concrete capacity and alerting targets.
 
 - **API (application programming interface) / CLI (command-line interface) / UI (user interface).** The three ways you talk to Argo CD: the API server it exposes, the `argocd` command, and the web page. All three read the *same* underlying state, so an incident looks the same through each — a fact that matters when one of them is the thing that is down.
 
@@ -305,7 +317,7 @@ argocd-redis-56d6bd8bb7-5bj6r                       4m           12Mi
 argocd-server-7d7fc8c87b-cpd6z                      2m           44Mi
 ```
 
-This is an important negative result: the repo-server is **healthy and idle**, not OOMKilled, not throttled. That rules out "the repo-server is broken" and confirms "the repo-server is fine but cannot *reach* Git." The logs echo the same host-resolution error. Restarting the repo-server — the very first thing someone wanted to do at 09:05 — would have changed **nothing**, because the pod was never the problem. The evidence saved you a pointless restart and pointed at the real fix.
+This is an important negative result: the repo-server is **healthy and idle**, not **OOMKilled** (Out Of Memory Killed — what Kubernetes does to a pod that tries to use more memory than its limit allows: it terminates the process, and you see the word `OOMKilled` in `kubectl describe pod`), not throttled. That rules out "the repo-server is broken" and confirms "the repo-server is fine but cannot *reach* Git." The logs echo the same host-resolution error. Restarting the repo-server — the very first thing someone wanted to do at 09:05 — would have changed **nothing**, because the pod was never the problem. The evidence saved you a pointless restart and pointed at the real fix.
 
 ### Step 6 — Correct the declarative source and verify reconciliation
 
@@ -378,7 +390,7 @@ Here is a scaling trap teams hit late and expensively. When the application-cont
 The repo-server is the component that strains most surprisingly, because its cost is driven by *rendering*, and rendering cost is not obvious from the outside. Three pressures matter:
 
 - **Memory (and OOMKills).** Rendering large charts holds the output in memory. Too many concurrent renders, or one enormous chart, and the pod is **OOMKilled**. The lever is `--parallelismlimit`, which caps how many manifest generations run at once — lower it to trade throughput for stability.
-- **The one-render-per-repo constraint.** There is a sharper limit hiding under the parallelism cap: if generating manifests needs to *modify files in the local clone* (as `helm dependency build` does), **only one concurrent generation per repo-server is allowed for that repository.** This is why a monorepo with fifty applications can feel serialized *even when CPU is idle* — the constraint is the shared clone, not the processor.
+- **The one-render-per-repo constraint.** There is a sharper limit hiding under the parallelism cap: if generating manifests needs to *modify files in the local clone* (as `helm dependency build` does — that command downloads a chart's sub-charts into its local `charts/` folder before rendering, which is a file-**writing** step, not a read), **only one concurrent generation per repo-server is allowed for that repository.** This is why a monorepo with fifty applications can feel serialized *even when CPU is idle* — the constraint is the shared clone, not the processor.
 - **The 90-second exec timeout.** The repo-server runs tools like `helm` and `kustomize` under a **90-second** timeout (`ARGOCD_EXEC_TIMEOUT`). This produces one of the most confusing failures in Argo CD: a chart grows slowly over months, one day renders in 95 seconds, the timeout fires, and you get a *rendering error that looks like a chart bug — on a day nobody changed the chart.* The cause is a threshold quietly crossed, not a defect introduced.
 
 The operator's takeaway is diagnostic, not a tuning cookbook: when the repo-server is the suspect (step 5), the questions are "is it out of memory?", "is this a monorepo being serialized?", and "did something get slow enough to hit the timeout?" — in that order.
@@ -400,6 +412,8 @@ You cannot operate what you cannot see. In production, Argo CD's metrics are usu
 
 The most useful observability lesson is about **alert design, not metric names.** The obvious alert — "an Application is `OutOfSync`" — is the *wrong* one: it fires constantly (someone committed forty seconds ago), most firings are benign, and teams mute it within a week. The alert that carries information is **compound**: an Application has been `OutOfSync` **and** has automated sync enabled **and** has not converged for N minutes. *That* means reconciliation itself is stuck, which is always worth waking someone for. On the metrics side, the reconciliation-duration metric (`argocd_app_reconcile`) is designed to be read as a heat map — a distribution drifting toward longer times is an early warning that arrives *before* any Application turns red. **Alert on failure to converge, not on `OutOfSync`.**
 
+That compound alert is also where an **SLA (service-level agreement** — a stated commitment about how available or fast a service will be, for example "synced within five minutes of a merge, 99.9% of the time") stops being a slogan: the "N minutes" in the alert *is* the SLA, written as a threshold. An SLA is what turns a vague "keep Argo CD healthy" into a number you can alert on and size capacity against.
+
 ### 6.5 Custom health checks, diff customizations, and ignore rules that conceal drift
 
 Two customization levers shape what Argo CD *tells* you, and both can help or harm:
@@ -408,7 +422,7 @@ Two customization levers shape what Argo CD *tells* you, and both can help or ha
 
 - **`ignoreDifferences`** does the opposite kind of thing — it tells Argo CD to stop reporting a field as drift. It is genuinely necessary: a horizontal autoscaler edits `spec.replicas`, an admission webhook injects a sidecar, and without an ignore rule those would show as permanent, unfixable `OutOfSync`. But the exact same mechanism, aimed carelessly, makes a *real* change invisible forever.
 
-The discipline is one sentence: **every ignore rule should name a field, not a resource, and every ignore rule needs a written owner** — the system that is now responsible for that field. Compare:
+The discipline is one sentence: **every ignore rule should name a field, not a resource, and every ignore rule needs a written owner** — the system that is now responsible for that field. Compare the two rules below. Both use `jsonPointers`, which are **JSON (JavaScript Object Notation)** path expressions — a slash-separated address that names one exact field inside a manifest, so `/spec/replicas` means "the `replicas` key inside the `spec` block."
 
 ```yaml
 # SAFE — field-scoped, with a clear owner.
@@ -522,11 +536,15 @@ The Helm-4 story is one instance of a recurring pattern — earlier releases cha
 
 ### 7.4 Operating an internal fork — a checklist
 
+> ### ⏱️ OPTIONAL / COMPRESSIBLE BLOCK — the one section designed to shrink when the clock runs out
+>
+> This subsection is deliberately built so an instructor can reduce it to a **three-minute discussion** ("what would you have to own if you forked Argo CD?") without losing anything you cannot read for yourself afterward. It is the first block to compress, and the only one. The checklist below stays in the file either way — it is a decision aid you will want on the day someone proposes a fork, not something to memorize now. Everything above this point (the six-step method, stability, backup, upgrades) is load-bearing for the capstone; this is the one part that is not.
+
 Sometimes an organization needs a private, modified build of Argo CD — an **internal fork**. It can be the right call. But a fork moves you from *consuming* the upstream project's work to *producing* it, and that shift is permanent for the life of the divergence. Before committing to a fork, price it against this checklist — every item is a job you now own forever:
 
 - [ ] **Upstream tracking.** Someone watches every upstream release and security advisory and decides, each time, whether and how to merge it into your fork. Miss this and your fork silently rots.
 - [ ] **CVE response.** When a **CVE** lands in Argo CD, upstream ships a patch — but *you* must now apply it to your fork, rebuild, test, and roll it out on your own timeline. You have taken ownership of the security clock.
-- [ ] **Image build and provenance.** You build and sign your own images, and can prove where each one came from (which commit, which pipeline). Production must run *your* verified image, not a mystery binary.
+- [ ] **Image build and provenance** (**provenance** is a verifiable record of *where a software image came from and how it was built* — which source commit, which build system, which signatures). You build and sign your own images, and can prove where each one came from. Production must run *your* verified image, not a mystery binary.
 - [ ] **Regression testing.** Every merge from upstream must be re-tested against your modifications, because upstream never tested against your patches. This is a standing test burden, not a one-time cost.
 - [ ] **Release cadence.** You decide and maintain your own release schedule, and communicate it — you no longer inherit upstream's cadence.
 - [ ] **Minimizing divergence.** Every line you change is a merge you owe forever. The discipline is to carry as few patches as possible and to upstream changes when you can, so the fork stays shallow.
@@ -652,20 +670,6 @@ rm -f backup.yaml
 - **Sharding splits clusters, not Applications.** An HA controller protects you cluster-by-cluster. Adding a replica does nothing for a single overloaded cluster — that fix is architectural.
 - **Argo CD's real state is Kubernetes objects; Redis is a disposable cache.** Losing the management cluster is a *rebuild* from Git plus an export, not a disaster. The export's size is a receipt for what you forgot to declare.
 - **An upgrade can change your manifests with no Git change** — because the renderer is part of your desired state. Rehearse the render (diff your real charts under the new version) before you rehearse the rollback.
-
----
-
-## 12. Version and accuracy notes
-
-This course pins **Argo CD `v3.5.2`**; commands, ports, and message shapes here are written to that version. The following claims are version-sensitive; those marked *confirmed* were run against this course's own v3.5.2 client and cluster during authoring, and the rest are flagged for `lab-tester`/`technical-source-check` before final sign-off:
-
-- **`argocd admin export -n argocd` — CONFIRMED at v3.5.2.** Run against the course cluster during authoring: exit 0, a multi-document YAML file whose objects are grep-able by `kind:` (observed kinds `Secret`, `ConfigMap`, `AppProject`; `Application`/`ApplicationSet` appear when present). Exact counts vary by lab state. Export does not error when pointed at a namespace with no Argo CD objects.
-- **The six evidence commands — CONFIRMED to exist at v3.5.2.** `argocd app get`, `argocd repo list`, `argocd app manifests <app> --source git|live` (the `--source` flag is `one of: live|git`, default `git`), `argocd app diff` (exit codes 0/1/2 as described), `argocd app history`, `kubectl -n argocd logs`, and `kubectl top pod -n argocd` were all run during authoring; the `kubectl top` output shown is real.
-- **Controller sharding *by cluster* — flagged for confirmation.** `ARGOCD_CONTROLLER_REPLICAS`, algorithms `legacy`/`round-robin`/`consistent-hashing`, and `--status-processors` (20) / `--operation-processors` (10) are documented for the HA install; the default algorithm and dynamic-distribution defaults at v3.5 should be reconfirmed against the operator manual.
-- **Helm 4 rendering change on upgrade — flagged (present the pattern confidently, the exact patch provisionally).** Argo CD 3.5 uses Helm 4 (reported as v4.2.1 in the 3.4→3.5 upgrade notes) as its only renderer; the null/nil coalescing change is reported by users and tracked upstream (argo-cd issues #29059/#29068) rather than stated in the official upgrade guide. It affects charts that rely on null-coalescing behavior, **not** every chart. This course's sample charts avoid null patterns so the classroom stays stable.
-- **Metrics endpoints/names — partially confirmed.** Component ports (controller `8082`, API server `8083`, repo-server `8084`) and the reconciliation-duration metric `argocd_app_reconcile` are documented; other individual metric names should be confirmed before any step depends on printing them. This course reads metrics via endpoint scrape and `kubectl top` only — there is no Prometheus/Grafana stack.
-- **90-second repo-server exec timeout and `--parallelismlimit` / one-render-per-repo** are documented HA-tuning facts; the exact defaults at v3.5 should be reconfirmed against the operator manual before any tuning step relies on them.
-- **Tested-Kubernetes matrix** — teach the *policy* (roughly the last three or four Kubernetes minors, published per release); the confirmed per-release numbers come from the environment specification.
 
 ---
 
