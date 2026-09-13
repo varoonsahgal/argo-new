@@ -1,7 +1,8 @@
 # Lab 5 — Instructor Walkthrough and Solutions
 
 > **INSTRUCTOR ONLY. Never share this file with participants, never project it, and never paste it into a shared channel.**
-> **Participant guide:** [lab-05-enforce-platform-guardrails.md](../../day-2/lab-05-enforce-platform-guardrails.md)
+> **Participant guide (now a modular arc):** [lab-05/README.md](../../day-2/lab-05/README.md)
+> **Exercise → module map:** E1, E2 are in [module 02](../../day-2/lab-05/02-build-fence-and-happy-path.md); E3, E4 in [module 03](../../day-2/lab-05/03-bypass-attempts.md); E5 in [module 04](../../day-2/lab-05/04-deletion-protection-and-wrap-up.md). Exercise IDs and answers below are unchanged.
 > **Timebox:** ~50 minutes on the required path · **Scaffolding:** G2 (reduced)
 > **Verified:** 2026-09-13, end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`, starting from a freshly reset and verified `CP-lab-05`. Every output block was captured from that run unless marked otherwise. **No password or token value appears in this file.**
 

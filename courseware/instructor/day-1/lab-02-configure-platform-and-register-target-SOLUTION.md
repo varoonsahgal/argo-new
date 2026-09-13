@@ -1,7 +1,8 @@
 # Lab 2 — Instructor Walkthrough and Solutions
 
 > **INSTRUCTOR ONLY. Never share this file with participants, never project it, and never paste it into a shared channel.**
-> **Participant guide:** [lab-02-configure-platform-and-register-target.md](../../day-1/lab-02-configure-platform-and-register-target.md)
+> **Participant guide (now a modular arc):** [lab-02/README.md](../../day-1/lab-02/README.md)
+> **Exercise → module map:** E1, E2 are in [module 02](../../day-1/lab-02/02-connect-repo-and-register-cluster.md); E3, E4 in [module 03](../../day-1/lab-02/03-prove-least-privilege-and-create-app.md); E5 in [module 04](../../day-1/lab-02/04-diagnose-and-wrap-up.md). Exercise IDs and answers below are unchanged.
 > **Timebox:** 60 minutes · **Scaffolding:** G1 (maximally guided)
 > **Verified:** 2026-09-13, end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`. Every output block below was captured from that run unless marked otherwise. SHAs, token lengths, and ages will differ on your machine. **No password or token value appears anywhere in this file.**
 

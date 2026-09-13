@@ -118,16 +118,16 @@ git rev-parse --short HEAD
 Expected branch: `argo-cd-course-build`. Record the commit ID for troubleshooting.
 
 ```bash
-grep -n 'course.message:' courseware/environment/repos/hello-reconcile/chart/templates/deployment.yaml
+grep -c 'annotations:' courseware/environment/repos/hello-reconcile/chart/templates/deployment.yaml
 ```
 
-Expected: a line containing:
+Expected output:
 
-```yaml
-course.message: {{ .Values.message | quote }}
+```text
+0
 ```
 
-This annotation makes a message change trigger a Pod rollout. It is already included in the updated repository; no manual YAML edit is needed. If it is missing, stop and check that you downloaded the correct branch and latest changes.
+Lab 1 expects to start from this unmodified chart, so no manual YAML edit is needed here. If this prints a number greater than `0`, stop and check that you downloaded the correct branch and latest changes.
 
 ## 5. Configure the course paths
 
@@ -297,4 +297,4 @@ When following Lab 1:
 
 ## Reference
 
-Based on the [course environment](https://github.com/varoonsahgal/argo-cd-material/tree/argo-cd-course-build/courseware/environment), including `bootstrap-vm.sh`, `scripts/lib/common.sh`, and `reset-lab.sh`. Repository update reviewed: `21a3fc8`, including the updated Deployment annotation. This handout is based on script inspection; installation timing and end-to-end execution on the provider VM still require rehearsal.
+Based on the [course environment](https://github.com/varoonsahgal/argo-cd-material/tree/argo-cd-course-build/courseware/environment), including `bootstrap-vm.sh`, `scripts/lib/common.sh`, and `reset-lab.sh`. Lab 1's `hello-reconcile` chart is expected to start with no Deployment annotations (checked in Section 4). This handout is based on script inspection; installation timing and end-to-end execution on the provider VM still require rehearsal.

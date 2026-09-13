@@ -1,0 +1,81 @@
+# Lab 2 · Module 2 — Connect the Repo, Register the Cluster
+
+> **Day 1 · Lab 2 · Module 2 of 4 · ~27 minutes**
+> **Goal:** inject a repository credential without ever exposing it (**E1**), then create a least-privilege identity on the workload cluster and register it (**E2**).
+
+> **Ground rule:** the templates showed you the *shapes*. These exercises do **not** hand you the finished commands — you produce them. The separate solution guide has exact answers if your instructor needs them.
+
+---
+
+## E1 — Connect the private repository
+
+**Difficulty:** Core · **Time:** ~10 minutes · **Objective:** L2.1
+
+**Goal:** turn the repository template into a real Secret by injecting the Gitea password **from the credential file**, apply it, and confirm the connection shows **Successful**. The password must never appear in the template, your shell history, or Git.
+
+**Starter state:** `platform-config` cloned (Module 1). Template at `~/platform-config/repositories/storefront-gitops.secret.template.yaml`. Password at `~/course/credentials/gitea-student.txt`.
+
+**Predict-before-you-verify:** after you apply this Secret, will the connection show Successful *immediately*, or is there a delay? (Hold your answer.)
+
+**Hints (use only if stuck):**
+- *Hint 1:* Everything in the template is correct except `<PASSWORD>`. Do not edit the `url`, `username`, or label.
+- *Hint 2:* Do not paste or `echo` the password. A substitution tool such as `envsubst` replaces a placeholder with an environment variable's value; load the credential file into that variable so the password stays out of history and Git.
+- *Hint 3:* Render the filled-in Secret to standard output and pipe it straight into `kubectl --context k3d-mgmt apply -f -` so the completed Secret never touches disk.
+- *Hint 4:* To verify, use the UI Repositories page and `argocd repo list` — neither reveals the password.
+
+**Success criterion:** Settings → Repositories shows `storefront-gitops` with a green **Successful** status; `argocd repo list` shows the same; you did not print or commit the password.
+
+![Argo CD Settings, Repositories showing storefront-gitops Successful (v3.5.2)](../../assets/screenshots/day-1/lab-02-02-repository-connected.png)
+
+*Figure SS-L2-02 — After E1: `storefront-gitops` shows a green **Successful** connection status.*
+
+<!-- CAPTURE-SPEC: SS-L2-02 — Settings → Repositories after E1. State: repo-storefront-gitops applied, route /settings/repos. Highlight: storefront-gitops row with green Successful status. Fidelity: full page. Argo CD v3.5.2. -->
+
+> **What "Successful" actually means (keep this for the Capstone).** A green status is a *measurement taken a moment ago*, not a permanent guarantee — "the last check reached the repository." A credential that expires next month shows green today and fails the morning it matters. Every status in Argo CD is a reading with a timestamp.
+
+---
+
+## E2 — Register the workload cluster with least privilege
+
+**Difficulty:** Advanced · **Time:** ~17 minutes · **Objective:** L2.2
+
+**Goal:** give Argo CD a scoped identity on the workload cluster, then register the cluster by writing a cluster Secret that carries that identity's token and CA. When you finish, the workload cluster shows **Successful**, scoped to only its allowed namespaces.
+
+**The identity lives on the cluster being *managed*.** When you register a workload cluster, the **ServiceAccount Argo CD authenticates as is created on the workload cluster** — not the management cluster. The management side only stores a *credential for* it (the cluster Secret). The file `~/course/lab-files/lab-02/workload-rbac.yaml` builds that identity **on the workload cluster**: a ServiceAccount `argocd-manager` in namespace `argocd-access`, a token Secret, a `Role argocd-deployer` + RoleBinding in each app namespace, a reduced `argocd-deployer-team` Role in `team-a` (same set *minus* NetworkPolicy/ResourceQuota/LimitRange), and **no** ClusterRoleBinding with write access anywhere.
+
+**This exercise has three moves.**
+
+> **Predict-before-you-apply.** The RBAC file creates a ServiceAccount, token Secret, Roles, and RoleBindings. **Which cluster should receive them — `k3d-mgmt` or `k3d-workload`?** Write your answer before Move A.
+
+**Move A — create the identity.** Apply `workload-rbac.yaml` to the correct cluster (your prediction decides the `--context`). This creates `argocd-manager` and its per-namespace Roles.
+
+**Move B — collect the token and CA.** The Secret `argocd-manager-token` (namespace `argocd-access`) holds two fields you need:
+- the **bearer token** = the *decoded* value of the Secret's `token` field.
+- the **CA data** = the Secret's `ca.crt` field used **as-is** (already base64-encoded, which is what `caData` expects).
+
+**Move C — render and apply the cluster Secret.** Inject the token and CA into the template's `<TOKEN>` and `<CA_DATA>` placeholders, then apply the result to the **management** cluster's `argocd` namespace.
+
+**Shape of a correct result:** a cluster Secret `cluster-workload` exists in `argocd` on the management cluster; the workload cluster shows **Successful** in Settings → Clusters; its detail panel lists the five scoped namespaces and the `cluster-role`/`region` labels.
+
+**Hints (use only if stuck):**
+- *Hint 1:* Re-run the cluster "address book" command from Module 1 after Move C — it should now return **two** rows.
+- *Hint 2:* The token Secret may take a few seconds to populate after Move A. If `token` is empty, wait and re-read it.
+- *Hint 3:* `kubectl get secret ... -o jsonpath='{.data.<field>}'` returns one field. Remember which needs `base64 -d` and which is used as-is (Module 1's template comments).
+- *Hint 4:* Keep the token and CA out of history and Git the same way you kept the password out in E1 (variables + `apply -f -`, never a committed file).
+- *Hint 5:* If the cluster registers but shows `Unknown`/error, re-read the `server:` line — it must be `https://k3d-workload-server-0:6443`, not any `localhost` address.
+
+**Success criterion:** Settings → Clusters shows a `workload` row, green **Successful**, server `https://k3d-workload-server-0:6443` (SS-L2-03), and the detail panel shows the scoped namespaces and labels (SS-L2-04).
+
+![Argo CD Settings, Clusters showing workload registered and Successful (v3.5.2)](../../assets/screenshots/day-1/lab-02-03-cluster-registered.png)
+
+*Figure SS-L2-03 — After E2: the `workload` cluster shows **Successful** at `https://k3d-workload-server-0:6443`.*
+
+<!-- CAPTURE-SPEC: SS-L2-03 — Settings → Clusters after E2. State: cluster-workload applied, route /settings/clusters. Highlight: workload row, green Successful, server URL. Fidelity: full page. Argo CD v3.5.2. -->
+
+![Argo CD cluster detail showing scoped namespaces and labels (v3.5.2)](../../assets/screenshots/day-1/lab-02-04-cluster-detail.png)
+
+*Figure SS-L2-04 — The `workload` cluster detail: the namespace scope and the `cluster-role`/`region` labels.*
+
+<!-- CAPTURE-SPEC: SS-L2-04 — Cluster detail panel. State: after E2, open workload cluster detail. Highlight: scoped namespaces list and cluster-role/region labels. Fidelity: panel. Argo CD v3.5.2. -->
+
+**→ Next:** [03 — Prove least privilege, create the app](03-prove-least-privilege-and-create-app.md)

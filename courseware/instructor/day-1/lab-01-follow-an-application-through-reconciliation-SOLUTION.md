@@ -1,9 +1,10 @@
 # Lab 1 — Instructor Walkthrough and Solutions
 
 > **INSTRUCTOR ONLY. Never share this file with participants, never project it, and never paste it into a shared channel.**
-> **Participant guide:** [lab-01-follow-an-application-through-reconciliation.md](../../day-1/lab-01-follow-an-application-through-reconciliation.md)
+> **Participant guide (now a modular arc):** [lab-01/README.md](../../day-1/lab-01/README.md)
+> **Exercise → module map:** E1 is in [module 01](../../day-1/lab-01/01-setup-and-dependencies.md); E2 Part 1 in [module 02](../../day-1/lab-01/02-commit-and-sync.md); E2 Parts 2–3 in [module 03](../../day-1/lab-01/03-why-the-app-didnt-change.md); E3, E4, and the stretch in [module 04](../../day-1/lab-01/04-three-views-and-wrap-up.md). Exercise IDs and answers below are unchanged.
 > **Timebox:** 45 minutes · **Scaffolding:** G1 (maximally guided)
-> **Verified:** 2026-09-13, end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`. Every output block below was captured from that run unless it is explicitly marked otherwise. Commit SHAs, Pod suffixes, and ages will differ on your machine.
+> **Verified:** 2026-09-13, end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`. Every output block below was captured from that run unless it is explicitly marked otherwise. Commit SHAs, Pod suffixes, and ages will differ on your machine. Exercise 2 was redesigned and re-verified end to end on the same sandbox later that day (Parts 1–3, stretch A, and the two Part 3 wrong turns), starting from a fresh `CP-lab-01` reset.
 
 ---
 
@@ -53,36 +54,35 @@ reset-lab.sh CP-lab-01 --verify-only --local
 PASS CP-baseline is in the expected state.
 ```
 
-### 0.2 Confirm the rollout annotation is in the chart — this decides whether Exercise 2 "works"
+### 0.2 Confirm the chart starts *without* a rollout trigger — Exercise 2 depends on it
 
 **Do:**
 
 ```bash
-git ls-remote http://lab-gitea:3000/course/hello-reconcile.git >/dev/null && \
 git clone -q http://lab-gitea:3000/course/hello-reconcile.git /tmp/hr-check && \
-grep -n 'course.message:' /tmp/hr-check/chart/templates/deployment.yaml; rm -rf /tmp/hr-check
+grep -c 'annotations:' /tmp/hr-check/chart/templates/deployment.yaml; rm -rf /tmp/hr-check
 ```
 
-**Expect:** a line containing `course.message: {{ .Values.message | quote }}`.
+**Expect:**
 
-**Why this matters (verified both ways in rehearsal):**
+```text
+0
+```
 
-- **With the annotation** (the GitHub `argo-cd-course-build` branch from commit `21a3fc8` onward): a message change edits *both* the ConfigMap and the Deployment's Pod template. The sync rolls a new Pod, health passes through `Progressing`, and `curl` returns the new message. This is what the guide describes.
-- **Without the annotation** (an environment seeded before `21a3fc8`): only the ConfigMap changes. The sync succeeds, **no new Pod starts**, and `curl` still returns the **old** message. The running container read its message from environment variables when it started, and nothing restarted it.
+**Why this matters (verified 2026-09-13):** Exercise 2 is built on a deliberate surprise. With no Pod-template annotation in the chart, a message-only sync updates the ConfigMap, **no new Pod starts**, and `curl` still returns the **old** message. Participants diagnose that in Part 2 and add a `checksum/config` annotation to the Pod template themselves in Part 3. The chart participants start from is never changed.
 
-If the annotation is missing on the class VMs, have the environment owner re-seed the `hello-reconcile` repository before class. If you discover it live, use the recovery in Section 4 ("If it goes sideways") — it turns into one of the best teaching moments of the day.
+If this prints `1` or more, a rehearsal (possibly yours) left the Part 3 commit on `main`, and Part 1 will roll a Pod with nothing to diagnose. Run `reset-lab.sh CP-lab-01 --local`: it force-moves `main` back to the `cp-baseline` tag. Verified: after a rehearsal that added the annotation, the reset restored `deployment.yaml` to its baseline blob and the count returned to `0`.
 
-### 0.3 Know the three places where the participant guide's text is out of step with v3.5.2
+### 0.3 Know where the participant guide is out of step with v3.5.2
 
 You do not need to fix the guide mid-class. You need to recognize these when a participant raises a hand.
 
 | Where | What the guide prints | What actually happens | What to tell the room |
 |---|---|---|---|
 | Section 6.2, `argocd app get` sample | `SyncWinow: <none>`, no `URL:` line, no `Source:` block | v3.5.2 prints a `URL:` line, a `Source:` block, `SyncWindow: Sync Allowed`, and a MESSAGE column such as `configmap/hello-reconcile unchanged` | "Same facts, newer layout. Read the labels, not the positions." |
-| Exercise 2 Step E, `curl … \| grep -o '"message":"[^"]*"'` | Expects your new message | **Prints nothing.** podinfo's JSON has a space after the colon (`"message": "…"`) | Use `grep -o '"message": *"[^"]*"'` (the ` *` allows the space) |
 | Exercise 3, `argocd app manifests … \| sed -n '/kind: ConfigMap/,/^---/p'` | The rendered ConfigMap | **Omits the `data:` block** — the one field participants need. Keys come out alphabetically, so `data:` appears *above* `kind:` and the `sed` range starts too late | Use `argocd app manifests hello-reconcile --source git \| yq 'select(.kind == "ConfigMap")'` |
-
-Also note: Figure SS-L1-06's caption says the diff shows "exactly one changed line". With the rollout annotation present, the diff shows **two** resources changing (ConfigMap and Deployment). Both are the same single edit in Git.
+| Exercise 2, Figure SS-L1-06 | Captioned as the diff view | The image file is the resource tree (identical to SS-L1-05), not the diff panel. The caption itself ("exactly one changed line: the ConfigMap's message") is correct for Part 1 | Show the diff live, or use the CLI diff block printed under the figure. The capture needs redoing |
+| Exercise 2 Part 3 | Two capture specs, SS-L1-11 and SS-L1-12, with no image yet | Participants rely on the CLI and Window C output printed in the guide | Project your own tree after the Part 3 Refresh and after the sync |
 
 ### 0.4 Arrange your projected screen
 
@@ -94,15 +94,15 @@ Three panes, exactly as participants will: Firefox on the Argo CD Applications p
 
 | Clock | Segment | Your job |
 |---|---|---|
-| 0:00–0:03 | Why this matters | Frame the thermostat idea; ask "what is the smallest thing that can go wrong?" |
-| 0:03–0:10 | Environment check + walkthrough (Sections 5–6) | Participants follow along; you narrate the three windows |
-| 0:10–0:15 | E1 — dependency table | Silent individual work, then collect the "guess" numbers |
-| 0:15–0:25 | E2 — predict, commit, follow | Collect predictions *before* anyone pushes |
-| 0:25–0:32 | E3 — desired vs rendered vs live | Pairs |
-| 0:32–0:38 | E4 — status in three places | Pairs, then the "UI is down" question to the room |
-| 0:38–0:45 | Solution walkthrough + debrief + takeaways | Run this file's E1–E4 answers live |
+| 0:00–0:02 | Why this matters | Frame the thermostat idea; ask "what is the smallest thing that can go wrong?" |
+| 0:02–0:09 | Environment check + walkthrough (Sections 5–6) | Participants follow along; you narrate the three windows |
+| 0:09–0:13 | E1 — dependency table | Silent individual work, then collect the "guess" numbers |
+| 0:13–0:28 | E2 — predict, commit, diagnose, fix | Collect Part 1 predictions *before* anyone pushes; run the Part 2 "who's lying?" moment with the whole room before anyone starts Part 3 |
+| 0:28–0:34 | E3 — desired vs rendered vs live | Pairs |
+| 0:34–0:39 | E4 — status in three places | Pairs, then the "UI is down" question to the room |
+| 0:39–0:45 | Solution walkthrough + debrief + takeaways | Run this file's E1–E4 answers live |
 
-If you are behind at 0:30, do E4 as a whole-class discussion instead of pair work: fill the table on the projector together.
+E2 grew from 10 to 15 minutes when it gained Parts 2 and 3; the time comes from shaving a minute off the opening, environment check, E1, E3, and debrief. If you are behind at 0:30, do E4 as a whole-class discussion instead of pair work: fill the table on the projector together.
 
 ---
 
@@ -298,38 +298,33 @@ Every field under `spec.source` and `spec.destination` is an address, and every 
 
 ---
 
-## 4. Exercise 2 — Predict, then commit a change and follow reconciliation
+## 4. Exercise 2 — Predict, commit a change, and find out why the app did not change
 
 ### What participants just attempted
 
-Fill a four-row prediction table, change `message` in `chart/values.yaml`, push, refresh, read the diff, sync, and prove the new message is served.
+Three parts:
+
+- **Part 1 (Steps A–D):** fill a prediction table, change `message` in `chart/values.yaml`, push, refresh, read the diff, sync, and `curl` the app.
+- **Part 2 (Step E):** gather four pieces of evidence and explain why the app still serves the old message.
+- **Part 3 (Steps F–G):** add a `checksum/config` annotation to the Deployment's Pod template, push, sync, watch the rollout, and prove the new message is served.
+
+**The design in one sentence:** the starting chart deliberately has no rollout trigger, so the message-only sync succeeds *and changes nothing a user can see*; the exercise turns that into a diagnosis and a real-world Helm fix, without changing the chart participants start from.
 
 ### Step A — collect predictions first
 
-**Say:** "Before anyone pushes: row three. *During* the sync, while the new Pod rolls out — what is the health? Hands up: Healthy? Degraded? Progressing?"
+**Say:** "Before anyone pushes, look at the bottom row. After the sync completes: does a new Pod start? Which message does the app serve? Hands up if you think a new Pod starts."
 
-Tally the hands. Then proceed.
+Tally the hands and write the number on the board. Most rooms say yes. That number is your payoff in Part 2.
 
-### Answer key — the prediction table
+### Answer key — the Part 1 prediction table
 
-| Moment | Sync status | Health status | Why |
-|---|---|---|---|
-| Right after `git push` (before Argo CD notices) | `Synced` | `Healthy` | Argo CD has not compared yet. Verified: an immediate `argocd app get` still printed `Synced to main (ae0e479)`, the *old* SHA. |
-| After Refresh / ~60 s (noticed, before Sync) | `OutOfSync` | `Healthy` | Git now differs from the cluster; the old Pod still serves correctly. |
-| During the sync, while the new Pod rolls out | `Synced` | `Progressing` | The manifests are applied, so sync flips first; the new Pod is not Ready yet. |
-| After the sync completes | `Synced` | `Healthy` | Converged. |
+| Moment | Sync status | Health status | New Pod? | Message served | Why |
+|---|---|---|---|---|---|
+| Right after `git push` | `Synced` | `Healthy` | No | revision one | Argo CD has not compared yet. Verified: an immediate `argocd app get` still printed `Synced to main (ae0e479)`, the baseline SHA. |
+| After Refresh, before Sync | `OutOfSync` | `Healthy` | No | revision one | Git differs from the cluster, but only in the ConfigMap. The old Pod still serves correctly. |
+| After the sync completes | `Synced` | `Healthy` | **No** | **revision one** | The sync updated the ConfigMap. Nothing in the Deployment's Pod template changed, so Kubernetes had no reason to start a Pod, and the running container still holds the old value in its environment. |
 
-Row three is the one most people get wrong, and in the verified run it lasted **about two seconds**. The sync status turned `Synced` *before* health left `Progressing`:
-
-```text
-t=1x0.5s  sync/health/op = OutOfSync/Healthy/Running
-t=2x0.5s  sync/health/op = Synced/Progressing/Succeeded
-t=6x0.5s  sync/health/op = Synced/Healthy/Succeeded
-```
-
-**Wow moment:**
-
-> "Look at the middle line. `Synced` and `Progressing` at the same time. Sync says 'the cluster now matches Git'. Health says 'but the new thing isn't ready yet'. Two separate questions, and for two seconds they gave two different answers. That is the whole two-axis model on one line."
+Verified: after the Part 1 sync, `argocd app get` was polled once a second for ten seconds, and every sample read `Synced Healthy Succeeded`. Health never passed through `Progressing`, because nothing rolled out.
 
 ### Steps B–C — make and push the change
 
@@ -350,7 +345,7 @@ git rev-parse HEAD
 
 (When Git asks for credentials: username `student`, password from `~/course/credentials/gitea-student.txt`.)
 
-### Step D — refresh, read the diff, sync
+### Step D — refresh, read the diff, sync, check the app
 
 **Say:** "I've pushed. Nobody touch anything. What does the Applications page show right now?" (Answer: still `Synced` — it hasn't looked yet.)
 
@@ -362,17 +357,19 @@ git rev-parse HEAD
 argocd app get hello-reconcile --refresh
 ```
 
-**Expect** (verified, with the rollout annotation present):
+**Expect** (verified):
 
 ```text
-Sync Status:        OutOfSync from main (bebccf0)
+Sync Status:        OutOfSync from main (17cb57e)
 Health Status:      Healthy
 
 GROUP  KIND        NAMESPACE  NAME             STATUS     HEALTH   HOOK  MESSAGE
        ConfigMap   hello      hello-reconcile  OutOfSync                 configmap/hello-reconcile configured
        Service     hello      hello-reconcile  Synced     Healthy        service/hello-reconcile unchanged
-apps   Deployment  hello      hello-reconcile  OutOfSync  Healthy        deployment.apps/hello-reconcile configured
+apps   Deployment  hello      hello-reconcile  Synced     Healthy        deployment.apps/hello-reconcile unchanged
 ```
+
+This matches [Figure SS-L1-05](../../assets/screenshots/day-1/lab-01-05-outofsync-after-refresh.png): only the ConfigMap node carries the `OutOfSync` icon.
 
 **Say:** "Right now, who is affected by this `OutOfSync`?"
 
@@ -392,43 +389,224 @@ argocd app diff hello-reconcile; echo "diff exit=$?"
 <   PODINFO_UI_MESSAGE: Hello from Git, revision one
 ---
 >   PODINFO_UI_MESSAGE: Hello from Git, revision two
-
-===== apps/Deployment hello/hello-reconcile ======
-156c156
-<         course.message: Hello from Git, revision one
----
->         course.message: Hello from Git, revision two
 diff exit=1
 ```
 
-**Say:** "One line in Git, two resources in the diff. Why would the chart author deliberately copy the message into the Deployment as an annotation?"
-
-**Answer:** Changing a ConfigMap does not restart the Pods that read it. Copying the value into the Pod template changes the template, which makes Kubernetes roll new Pods that read the new value. It is the same trick many public Helm charts use with a checksum annotation.
+**Say** (plant the seed; do not explain it yet): "One resource in this diff. Remember which resource is *not* in it."
 
 **Note for the exit code:** `argocd app diff` exits `1` when it finds a difference, `0` when there is none, and `2` when the comparison itself failed. The capstone relies on this.
 
-**Click:** **App Diff**, then **Sync**. Leave **Prune** unchecked ([Figure SS-L1-07](../../assets/screenshots/day-1/lab-01-07-sync-panel.png)). Confirm.
+**Click:** **Sync**. Leave **Prune** unchecked ([Figure SS-L1-07](../../assets/screenshots/day-1/lab-01-07-sync-panel.png)). Confirm.
 
-**Expect in Window C** (verified; abbreviated — the new Pod starts and the old one completes):
-
-```text
-ADDED      hello-reconcile-6d7df89d88-4wfb2   0/1     Pending             0          0s
-MODIFIED   hello-reconcile-6d7df89d88-4wfb2   0/1     ContainerCreating   0          0s
-MODIFIED   hello-reconcile-6d7df89d88-4wfb2   0/1     Running             0          2s
-MODIFIED   hello-reconcile-6d7df89d88-4wfb2   1/1     Running             0          3s
-MODIFIED   hello-reconcile-5b66f8d98c-tfxdj   0/1     Completed           0          3m3s
-DELETED    hello-reconcile-5b66f8d98c-tfxdj   0/1     Completed           0          3m4s
-```
-
-**Say:** "Watch Window C, not the browser. The browser will show `Progressing` for about two seconds — blink and you miss it. The terminal shows the whole handover: new Pod Ready, old Pod gone."
-
-### Step E — prove it
+**Expect in Window C** (verified): **nothing.** The Pod watch prints no new line. [Figure SS-L1-08](../../assets/screenshots/day-1/lab-01-08-synced-new-revision.png) was captured in exactly this state: `Synced` at the new SHA, and the same ReplicaSet `hello-reconcile-5b66f8d98c` (`rev:1`) as in SS-L1-05.
 
 **Do:**
 
 ```bash
 argocd app get hello-reconcile | grep -i "sync status"
+kubectl --context k3d-mgmt -n hello port-forward svc/hello-reconcile 9898:9898 >/tmp/pf.log 2>&1 &
+sleep 2
+curl -s http://localhost:9898/ | grep -o '"message": *"[^"]*"'
+kill %1
+```
+
+**Expect** (verified; the rehearsal forwarded local port `19898` because `9898` was already in use on that machine):
+
+```text
+Sync Status:        Synced to main (17cb57e)
+"message": "Hello from Git, revision one"
+```
+
+**Say:** "Hands up if your app is saying revision two." (No hands.) "Now hands up if you predicted a new Pod." Point at the number on the board.
+
+**Wow moment:**
+
+> "Argo CD says `Synced`. The sync `Succeeded`. And your users are still reading revision one. Hold on to that contradiction for two minutes — it's the most useful thing you'll learn today."
+
+### Step E (Part 2) — gather evidence, then explain
+
+**Say:** "So who's lying? Git says two. Argo CD says it synced our commit. The app says one. Don't guess. Get one piece of evidence from each layer."
+
+**Do:**
+
+```bash
+argocd app get hello-reconcile | grep -i "sync status"
+kubectl --context k3d-mgmt -n hello get configmap hello-reconcile -o jsonpath='{.data.PODINFO_UI_MESSAGE}{"\n"}'
+kubectl --context k3d-mgmt -n hello exec deploy/hello-reconcile -- env | grep PODINFO_UI_MESSAGE
+kubectl --context k3d-mgmt -n hello rollout history deploy/hello-reconcile
+kubectl --context k3d-mgmt -n hello get pods
+```
+
+**Expect** (verified; the sync finished at 20:26:55 UTC and the Pod had started at 17:05:09 UTC, which is why its age is hours — on a class VM it will be however long ago Lab 0 or the last reset ran):
+
+```text
+Sync Status:        Synced to main (17cb57e)
+Hello from Git, revision two
+PODINFO_UI_MESSAGE=Hello from Git, revision one
+deployment.apps/hello-reconcile
+REVISION  CHANGE-CAUSE
+1         <none>
+
+NAME                               READY   STATUS    RESTARTS   AGE
+hello-reconcile-5b66f8d98c-fzsm9   1/1     Running   0          3h22m
+```
+
+Walk the evidence top to bottom: Argo CD deployed our commit. The ConfigMap object holds revision two. The **process** inside the container holds revision one. The Deployment has had exactly one rollout, ever, and the Pod is older than the sync.
+
+### Answer key — the explanation
+
+> The container copies `PODINFO_UI_MESSAGE` from the ConfigMap into its environment **once, when it starts**. The sync changed the ConfigMap but nothing in the Deployment's Pod template, so Kubernetes never started a new Pod — the same Pod (same name, same age, rollout revision still `1`) is still running with the old value.
+
+Accept any answer with both halves: **(1) the value is read once, at container start**, and **(2) no Pod-template change means no rollout**.
+
+Nobody lied. Git, Argo CD, and the ConfigMap agree. The running process is the one layer that never re-read.
+
+**Wow moment:**
+
+> "`Synced` means the *objects* in the cluster match Git. It does not mean every running program has picked up the change. Argo CD manages objects. It doesn't restart programs — Kubernetes does, and only when the Pod template changes."
+
+### Part 3 — handle the tempting shortcut first
+
+**Say:** "What's the fastest way to make it say revision two?"
+
+Someone will say "delete the Pod" (they did it in Section 6.3) or "`kubectl rollout restart`".
+
+**Answer:** Either works: a new Pod starts and reads the new ConfigMap. (Rehearsed in an earlier validation pass with `kubectl rollout restart deploy/hello-reconcile`.) Then ask:
+
+> "Where is that restart recorded in Git? And what happens the *next* time someone changes the message?"
+
+A manual restart fixes today's Pod and leaves the chart broken for every future change. The fix belongs in Git.
+
+### Step F — add the checksum annotation
+
+**Do:** edit `chart/templates/deployment.yaml` on the projector, then show the change:
+
+```bash
+cd ~/hello-reconcile
+git --no-pager diff
+```
+
+**Expect** (verified):
+
+```diff
+diff --git a/chart/templates/deployment.yaml b/chart/templates/deployment.yaml
+index 8c6ec0a..a808c41 100644
+--- a/chart/templates/deployment.yaml
++++ b/chart/templates/deployment.yaml
+@@ -13,6 +13,8 @@ spec:
+     metadata:
+       labels:
+         app.kubernetes.io/name: hello-reconcile
++      annotations:
++        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+     spec:
+       containers:
+         - name: podinfo
+```
+
+**Say** (the chain, slowly, one link per sentence): "We change the message. The ConfigMap renders differently. Its fingerprint changes. The fingerprint lives inside the Pod template. So the Pod template changed. Kubernetes rolls a new Pod. The new Pod reads the new ConfigMap."
+
+**Where the pattern comes from:** it is the Helm project's own recommendation, "Automatically Roll Deployments" in the *Chart Development Tips and Tricks* page (<https://helm.sh/docs/howto/charts_tips_and_tricks/>). Many public charts use exactly this line. The fingerprint changes when anything in the rendered ConfigMap changes — verified locally with Helm `v4.2.1`: changing `message` or `color` changed the checksum; changing `replicaCount` did not.
+
+**Do** (the pre-push check participants run):
+
+```bash
+helm template hello-reconcile chart | grep 'checksum/config'
+```
+
+**Expect** (verified with the message `Hello from Git, revision two`):
+
+```text
+        checksum/config: 1ef56c65fb66d081174eb14dceaeb05c2e1fc624d4c006dca251d1dd7ba4e17b
+```
+
+**Say:** "Remember that fingerprint. In a minute, Argo CD's diff will show the *same* 64 characters — because Argo CD renders the chart with Helm too. Same chart, same values, same output."
+
+**Say** (prediction, before pushing): "Which resource goes `OutOfSync` this time — ConfigMap, Deployment, or both? And what's the health *during* the sync?"
+
+**Do:**
+
+```bash
+git add chart/templates/deployment.yaml
+git commit -m "Lab 1: roll Pods when the ConfigMap changes"
+git push
+git rev-parse HEAD
+```
+
+### Step G — sync, watch, prove
+
+**Do:**
+
+```bash
+argocd app get hello-reconcile --refresh
+```
+
+**Expect** (verified):
+
+```text
+Sync Status:        OutOfSync from main (22291a6)
+Health Status:      Healthy
+
+GROUP  KIND        NAMESPACE  NAME             STATUS     HEALTH   HOOK  MESSAGE
+       ConfigMap   hello      hello-reconcile  Synced                    configmap/hello-reconcile configured
+       Service     hello      hello-reconcile  Synced     Healthy        service/hello-reconcile unchanged
+apps   Deployment  hello      hello-reconcile  OutOfSync  Healthy        deployment.apps/hello-reconcile unchanged
+```
+
+**Answer:** only the Deployment. The ConfigMap already matches Git — Part 1 synced it.
+
+**If someone asks about the MESSAGE column:** it reports the result of the *last sync operation*, not the current comparison. That is why the ConfigMap still says `configured` (Part 1's sync) and the Deployment says `unchanged`. Read the STATUS column for the comparison.
+
+**Do:**
+
+```bash
+argocd app diff hello-reconcile; echo "diff exit=$?"
+```
+
+**Expect** (verified — note the fingerprint is identical to the local `helm template` output):
+
+```text
+===== apps/Deployment hello/hello-reconcile ======
+151a152,153
+>       annotations:
+>         checksum/config: 1ef56c65fb66d081174eb14dceaeb05c2e1fc624d4c006dca251d1dd7ba4e17b
+diff exit=1
+```
+
+**Click:** **Sync**, Prune unchecked, confirm.
+
+**Expect — status transitions** (verified, polling the Application every 0.5 s; the `Succeeded` on the first line belongs to Part 1's operation):
+
+```text
+20:28:17 OutOfSync/Healthy/Succeeded
+20:28:19 Synced/Progressing/Succeeded
+20:28:21 Synced/Healthy/Succeeded
+```
+
+**Expect in Window C** (verified; captured with `--output-watch-events` so each line is labeled, and duplicate lines removed):
+
+```text
+EVENT      NAME                               READY   STATUS              RESTARTS   AGE
+ADDED      hello-reconcile-67fc76f88b-jgw7c   0/1     Pending             0          0s
+MODIFIED   hello-reconcile-67fc76f88b-jgw7c   0/1     ContainerCreating   0          0s
+MODIFIED   hello-reconcile-67fc76f88b-jgw7c   0/1     Running             0          1s
+MODIFIED   hello-reconcile-67fc76f88b-jgw7c   1/1     Running             0          2s
+MODIFIED   hello-reconcile-5b66f8d98c-fzsm9   1/1     Terminating         0          3h23m
+MODIFIED   hello-reconcile-5b66f8d98c-fzsm9   0/1     Completed           0          3h23m
+DELETED    hello-reconcile-5b66f8d98c-fzsm9   0/1     Completed           0          3h23m
+```
+
+**Wow moment:**
+
+> "Look at the middle status line. `Synced` and `Progressing` at the same time. Sync says 'the cluster now matches Git'. Health says 'but the new Pod isn't ready yet'. Two separate questions, and for two seconds they gave two different answers. Now look at Window C: the new Pod was `1/1` Ready *before* the old one started terminating. At no moment did this app have zero Pods. That's a rolling update."
+
+**Do** (prove):
+
+```bash
+argocd app get hello-reconcile | grep -i "sync status"
 git -C ~/hello-reconcile rev-parse --short HEAD
+kubectl --context k3d-mgmt -n hello rollout history deploy/hello-reconcile
+kubectl --context k3d-mgmt -n hello get rs
 kubectl --context k3d-mgmt -n hello port-forward svc/hello-reconcile 9898:9898 >/tmp/pf.log 2>&1 &
 sleep 2
 curl -s http://localhost:9898/ | grep -o '"message": *"[^"]*"'
@@ -438,42 +616,37 @@ kill %1
 **Expect** (verified):
 
 ```text
-Sync Status:        Synced to main (bebccf0)
-bebccf0
+Sync Status:        Synced to main (22291a6)
+22291a6
+deployment.apps/hello-reconcile
+REVISION  CHANGE-CAUSE
+1         <none>
+2         <none>
+
+NAME                         DESIRED   CURRENT   READY   AGE
+hello-reconcile-5b66f8d98c   0         0         0       5h14m
+hello-reconcile-67fc76f88b   1         1         1       36s
 "message": "Hello from Git, revision two"
 ```
+
+**Say:** "Two rollouts in the history now. Two ReplicaSets: the old one scaled to zero, kept so you can roll back. And the app finally says what Git says."
 
 ### Wrong turns
 
 | What the participant sees | What happened | What you say |
 |---|---|---|
 | Nothing changes for a minute after pushing | The 60-second reconciliation timer | "The thermostat hasn't checked yet. Press Refresh — that's the impatient version of waiting." |
-| `curl` prints **nothing** | The guide's `grep` pattern has no space after the colon | "podinfo pretty-prints its JSON. Add ` *` after the colon." |
 | `git push` rejected or prompts repeatedly | Wrong username, or the password pasted with a trailing newline | Username is `student`; use the credentials file |
-| `curl` shows the **old** message after a successful sync | Either the rollout hasn't finished, or the chart lacks the rollout annotation | Check `Synced`/`Healthy` first. If the Pod did not restart at all, see "If it goes sideways" below |
+| Part 2: participant deletes the Pod or runs `kubectl rollout restart`, and the new message appears | It works, and it skips the lesson | "Great — now change the message to revision three. Did it reach the app without you touching anything?" Steer them to Part 3 |
+| Part 3: sync `Succeeded`, the Deployment was in the diff, but **no new Pod** and `curl` still shows the old message | The annotation went under the Deployment's **top-level** `metadata:` (the first one in the file). That annotates the Deployment object, not the Pod template. Verified: the diff shows `5a6` / `>     checksum/config: …` (four spaces, near the top of the object) instead of `151a152,153`; the sync succeeds; `rollout history` gains no revision; the container still has the old `PODINFO_UI_MESSAGE` | "Which of the two `metadata:` blocks describes the *Pods*? Only a change under `spec.template` rolls Pods." Cue: `helm template … \| grep checksum` shows the line indented by four spaces instead of eight |
+| Part 3: sync status `Unknown` and a `ComparisonError` condition right after pushing | A typo in the template line. Verified with `sha256` instead of `sha256sum`: `Failed to load target state: … failed to execute helm template command … parse error at (hello-reconcile/templates/deployment.yaml:8): function "sha256" not defined`. Health stayed `Healthy` | "That's the repo-server failing to *render*. Nothing was applied, so the running app is untouched." Have them run `helm template hello-reconcile chart` locally — verified to print the same `function "sha256" not defined` error — fix, commit, push, Refresh |
+| Part 3: `curl` cannot connect to `localhost:9898` | A port-forward left running from Part 1 was attached to the old Pod and exited when the rollout deleted that Pod (verified: a port-forward open across the rollout had exited, and `curl` returned exit code `7`) | "A port-forward follows one Pod, not the Service. New Pod, new port-forward." |
 | Participant ticked **Prune** in the sync panel | Harmless here (nothing to prune) | "Nothing to delete this time. In Lab 3 we'll talk about why that checkbox deserves respect." |
 
-### If it goes sideways — the chart has no rollout annotation
+### If it goes sideways
 
-Verified in rehearsal on an environment seeded before `21a3fc8`: the diff shows **only** the ConfigMap, the sync `Succeeded`, the Pod watch shows **no new Pod**, and `curl` returns `"message": "Hello from Git, revision one"`.
-
-Do not hide this. Turn it into a lesson:
-
-**Say:**
-
-> "Look at this. Git says revision two. Argo CD says `Synced` to our commit. The ConfigMap in the cluster says revision two. And the app is still saying revision one. Who's lying?"
-
-Let them work it out, then:
-
-> "Nobody. podinfo reads that message from an environment variable, once, when the container starts. Updating a ConfigMap doesn't restart anything. Argo CD did its job perfectly — it made the cluster match Git. The *chart* didn't say 'restart when this changes'. This is exactly why so many Helm charts put a checksum of their ConfigMap into the Pod template."
-
-To show the new message for the rest of the demo, restart the Deployment **on your VM only**, and say out loud that it is a manual intervention outside Git:
-
-```bash
-kubectl --context k3d-mgmt -n hello rollout restart deploy/hello-reconcile
-```
-
-Then log it for the environment owner: the `hello-reconcile` seed needs commit `21a3fc8`.
+- **Part 1 rolls a new Pod and `curl` shows the new message immediately.** The class VM's `main` already contains a Pod-template annotation — usually a rehearsal that was not reset. The Part 2 diagnosis has nothing to diagnose. Recover live by making the point from the diff: "See the Deployment in this diff? Somebody already added the fix you'd have built." Then skip to Step F and have participants *read* the annotation instead of adding it. Before the next class, run pre-flight 0.2.
+- **The rollout in Part 3 is too fast to see `Progressing` in the browser.** Expected (about two seconds in rehearsal). Point at Window C instead: the order of the Pod lines is the durable evidence.
 
 ---
 
@@ -636,9 +809,47 @@ Most rooms say "the CLI". Then:
 
 ---
 
-## 7. Optional stretch — `replicaCount: 0`
+## 7. Optional stretches
 
-### Answer key (verified)
+### Stretch A — prove the fix is permanent (verified)
+
+After Part 3, change only `message` to `Hello from Git, revision three`, push, and refresh.
+
+**Expect** (verified):
+
+```text
+Sync Status:        OutOfSync from main (8bee0ab)
+Health Status:      Healthy
+
+GROUP  KIND        NAMESPACE  NAME             STATUS     HEALTH   HOOK  MESSAGE
+       ConfigMap   hello      hello-reconcile  OutOfSync                 configmap/hello-reconcile unchanged
+       Service     hello      hello-reconcile  Synced     Healthy        service/hello-reconcile unchanged
+apps   Deployment  hello      hello-reconcile  OutOfSync  Healthy        deployment.apps/hello-reconcile configured
+```
+
+```text
+===== /ConfigMap hello/hello-reconcile ======
+4c4
+<   PODINFO_UI_MESSAGE: Hello from Git, revision two
+---
+>   PODINFO_UI_MESSAGE: Hello from Git, revision three
+
+===== apps/Deployment hello/hello-reconcile ======
+156c156
+<         checksum/config: 1ef56c65fb66d081174eb14dceaeb05c2e1fc624d4c006dca251d1dd7ba4e17b
+---
+>         checksum/config: 3a0604828066800c8382b6c481e19e32ec6ce44d4d0fb8b4874ad314a3021f64
+```
+
+After Sync, the status went `OutOfSync/Healthy/Running` → `Synced/Progressing/Succeeded` → `Synced/Healthy/Succeeded` in about two seconds. A new Pod (`hello-reconcile-8748fd844-4zbz8`) was Ready before the old one terminated, and `curl` returned `"message": "Hello from Git, revision three"`.
+
+**Answer:** two resources this time, versus one in Part 1. One edit in Git now changes both the ConfigMap and the fingerprint in the Pod template, so every future message or colour change rolls the Pods with no human in the loop.
+
+**Wow moment:**
+
+> "One line in Git, two resources in the diff. That second resource is the chart telling Kubernetes 'start new Pods when this changes' — and you wrote that sentence twenty minutes ago."
+
+### Stretch B — `replicaCount: 0` (verified)
 
 After setting `replicaCount: 0`, pushing, refreshing, and syncing:
 
@@ -676,7 +887,7 @@ deployment.apps/hello-reconcile   0/0     0            0           8h
 | 1 | Deployed revision equals the commit | The short SHA in `argocd app get … \| grep -i "sync status"` equals the first 7 characters of `git rev-parse HEAD` |
 | 2 | App serves the new message | `curl … \| grep -o '"message": *"[^"]*"'` shows it |
 | 3 | E1 dependency table | 8 rows, including the image and "credentials: none" |
-| 4 | E2 prediction table annotated | Row 3 corrected to `Synced` + `Progressing` if they predicted otherwise |
+| 4 | E2 notes complete | Step A bottom row corrected to **no new Pod / old message** if they predicted otherwise; a Part 2 explanation with both halves (read once at container start; no Pod-template change, no rollout); Part 3 statuses recorded as `Synced` + `Progressing`, then `Healthy` |
 | 5 | E4 three-way table | Pod events blank in the CLI column, and the `kubectl` side-door answer |
 
 ---
@@ -685,8 +896,8 @@ deployment.apps/hello-reconcile   0/0     0            0           8h
 
 Ask these in order. Each has a short answer; let participants give it.
 
-1. **"Which of your four predictions was wrong?"** — Expect row 3. Celebrate the wrong ones: "Being surprised on purpose is how the model sticks."
-2. **"When exactly was the cluster 'wrong' today?"** — From the push until the sync. Nobody was hurt, because `OutOfSync` is not an outage.
+1. **"Which of your predictions was wrong?"** — Expect the bottom row of Step A: most people predicted a new Pod and the new message. Celebrate the wrong ones: "Being surprised on purpose is how the model sticks."
+2. **"When exactly was the cluster 'wrong' today?"** — Two answers. `OutOfSync`: from each push until its sync, and nobody was hurt, because `OutOfSync` is not an outage. The sneaky one: after the Part 1 sync, Argo CD was `Synced` while users still saw the old message, until Part 3. That gap was not drift — the chart never told Kubernetes to start a new Pod.
 3. **"You deleted a Pod and nothing happened in Argo CD. Name something you could delete that *would* make it `OutOfSync`."** — The Deployment, Service, or ConfigMap — anything that is in Git.
 4. **"If a teammate says 'Argo CD is broken, it shows OutOfSync', what's your first question?"** — "Is anyone actually affected — what does health say?"
 
@@ -697,6 +908,8 @@ Ask these in order. Each has a short answer; let participants give it.
 > "`OutOfSync` is a sentence about Git, not a sentence about your users. `OutOfSync` that never converges is the real problem."
 
 > "Read the diff before you sign it."
+
+> "`Synced` means the objects match Git. It doesn't mean the running program picked up the change."
 
 > "Deleting a Pod is not drift. Deleting the Deployment is — because only one of them is in Git."
 

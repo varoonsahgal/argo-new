@@ -261,6 +261,32 @@ shots:
       intent: "two revisions"
       selector: ".application-deployment-history"
 
+  - id: SS-L1-11
+    guide: lab-01
+    filename: day-1/lab-01-11-deployment-outofsync-checksum.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "Tree after the E2 Part 3 push (checksum/config annotation added) and Refresh, before Sync"
+    produced_by: "lab-01 E2 Part 3"
+    fidelity: full
+    highlight:
+      intent: "OutOfSync on the Deployment node while the ConfigMap node is Synced"
+      selector: ".application-resource-tree"
+
+  - id: SS-L1-12
+    guide: lab-01
+    filename: day-1/lab-01-12-rollout-new-replicaset.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "Tree after the E2 Part 3 sync completes"
+    produced_by: "lab-01 E2 Part 3"
+    fidelity: full
+    highlight:
+      intent: "Deployment owns two ReplicaSets: the old one scaled to 0 and a new one with a running Pod"
+      selector: ".application-resource-tree"
+
   # --- Guide 03 -------------------------------------------------------------
   - id: SS-S3-01
     guide: "03"

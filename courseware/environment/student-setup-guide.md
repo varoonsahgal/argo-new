@@ -236,5 +236,6 @@ If both checks look like the above, **you are ready for Day 1.** 🎉
 | Argo CD login fails | Wrong password | Re-copy it with `cat ~/course/credentials/argocd-admin.txt` (no extra spaces) |
 | A pod is `Pending` or `CrashLoopBackOff`, or `hello-reconcile` is not Synced/Healthy | The VM may still be finishing first-boot setup | Wait 2-3 minutes and re-run the smoke test; if it persists, tell your instructor (they can check `/var/log/course-bootstrap.log`) |
 
-When you are set up, open the first lesson,
-`day-1/01-gitops-and-argo-cd-topology.md`, and you are on your way.
+When you are set up, open the course welcome guide and agenda,
+`day-1/00-welcome-and-agenda.md`, then work through the hands-on refresher in
+`day-1/refresher/README.md`, and you are on your way.

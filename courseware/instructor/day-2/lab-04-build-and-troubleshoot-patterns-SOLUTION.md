@@ -1,7 +1,8 @@
 # Lab 4 — Instructor Walkthrough and Solutions
 
 > **INSTRUCTOR ONLY. Never share this file with participants, never project it, and never paste it into a shared channel.**
-> **Participant guide:** [lab-04-build-and-troubleshoot-patterns.md](../../day-2/lab-04-build-and-troubleshoot-patterns.md)
+> **Participant guide (now a modular arc):** [lab-04/README.md](../../day-2/lab-04/README.md)
+> **Exercise → module map:** E1, E2, E3 are in [module 02](../../day-2/lab-04/02-build-and-protect-the-factory.md); E4, E5 in [module 03](../../day-2/lab-04/03-app-of-apps-and-trace-faults.md); E6 in [module 04](../../day-2/lab-04/04-showdown-and-wrap-up.md). Exercise IDs and answers below are unchanged.
 > **Timebox:** 75 minutes · **Scaffolding:** G2 (reduced)
 > **Verified:** 2026-09-13, end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`, starting from a freshly reset and verified `CP-lab-04`. Every output block was captured from that run unless marked otherwise. SHAs and times will differ.
 
