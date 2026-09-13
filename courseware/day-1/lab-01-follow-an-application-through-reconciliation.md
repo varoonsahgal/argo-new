@@ -386,6 +386,9 @@ Copy that full SHA — you will match it against what Argo CD deploys.
 
 Now read the diff before you approve it. Click **App Diff** (or run `argocd app diff hello-reconcile` in Window B).
 
+Note that it doesn’t autosync because this lab deliberately configures hello-reconcile with a Manual sync policy.
+Argo CD separates detecting changes from applying changes.
+
 ![Argo CD diff view highlighting the changed message line (v3.5.2)](../assets/screenshots/day-1/lab-01-06-app-diff.png)
 
 *Figure SS-L1-06 — The diff shows exactly one changed line: the ConfigMap's message (v3.5.2).*
