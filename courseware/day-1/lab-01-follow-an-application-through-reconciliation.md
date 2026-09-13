@@ -262,8 +262,8 @@ Argo CD stores the Application itself as a Kubernetes object. To read it in the 
 ```bash
 kubectl --context k3d-mgmt -n argocd get application hello-reconcile -o yaml
 ```
+<img width="1060" height="529" alt="Screenshot 2026-09-13 at 2 00 42 PM" src="https://github.com/user-attachments/assets/b10fd1dd-7c1b-4797-92a3-07f13be50e74" />
 
-![Argo CD Application manifest showing source, destination, project, and syncPolicy (v3.5.2)](../assets/screenshots/day-1/lab-01-04-app-manifest.png)
 
 *Figure SS-L1-04 — Argo CD v3.5.2 Application manifest, showing the addressing fields.*
 
