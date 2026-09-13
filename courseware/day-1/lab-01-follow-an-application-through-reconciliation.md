@@ -3,7 +3,9 @@
 > **Day 1 · Lab 1 · Hands-on lab guide · ~45 minutes**
 > **Argo CD version this course targets: `v3.5.2`** (Helm chart `10.8.4`, Kubernetes `v1.35`).
 > **Scaffolding level: G1 (maximally guided).** Every click, every command, and a screenshot at every meaningful step. Labs later in the course hand you more of the work; this first one holds your hand on purpose.
-> **What you need open before you start:** your SSH session to the VM (from the student setup guide), a browser with the Argo CD tunnel running (`https://localhost:8443`), and — for one step — the Gitea tunnel (`http://localhost:3000`).
+> **What you need open before you start:** a MATE Terminal window on the VM desktop, and Firefox inside that same desktop with the Argo CD web interface (`https://localhost:8443`) and — for one step — Gitea (`http://localhost:3000`). Because Firefox runs on the VM, `localhost` already means the VM; there is no tunnel to start.
+>
+> **This lab runs on your pre-provisioned course VM.** If you have not completed **Lab 0 — Prepare Your VM for Lab 1**, do that first: it builds the two clusters, Argo CD, Gitea, and reaches the starting checkpoint.
 
 ---
 
@@ -38,7 +40,7 @@ These map to course outcomes **O1** (reconciliation), **O2** (components and whe
 
 **You should have completed:**
 
-- The **student setup guide** — you have SSH access to your VM, both tunnels work, you have logged into the Argo CD web interface once, and your smoke test passed (Argo CD pods `Running`, `hello-reconcile` shown `Synced`/`Healthy`).
+- **Lab 0 — Prepare Your VM for Lab 1** — your VM desktop is ready, Firefox reaches the Argo CD web interface and Gitea, you have logged into the Argo CD web interface once, and your smoke test passed (Argo CD pods `Running`, `hello-reconcile` shown `Synced`/`Healthy`).
 - **Guide 01 — GitOps and the Argo CD topology.** From it, recall: Git is the source of truth; Argo CD *pulls* and converges; the only thing that crosses from continuous integration (CI) to continuous delivery (CD) is a **commit**; the **management cluster** runs Argo CD and the **workload cluster** receives applications.
 - **Guide 02 — Argo CD architecture and the Application model.** From it, recall the six components and their one-verb jobs (repo-server *renders*, application-controller *compares and applies*, API server *talks*, and so on), and the two independent status axes below.
 
@@ -88,10 +90,16 @@ Before you change anything, prove the environment is in the known-good starting 
 
 ### 5.1 Run the verifier (it changes nothing)
 
-In your SSH session, run:
+In a MATE Terminal window on the VM desktop, first load the course environment so the pinned `kubectl`, `helm`, `argocd`, and the course scripts are on your `PATH` (do this in every new VM terminal):
 
 ```bash
-reset-lab.sh CP-lab-01 --verify-only
+source ~/argo-lab-env.sh
+```
+
+Then run:
+
+```bash
+reset-lab.sh CP-lab-01 --verify-only --local
 ```
 
 The `--verify-only` flag prints a PASS/FAIL table **without changing anything**. `CP-lab-01` is an accepted alias for the baseline checkpoint, so the header of the output says `CP-baseline` — that is expected, not a mismatch.
@@ -114,7 +122,7 @@ PASS CP-baseline is in the expected state.
 2. The `in-cluster` Secret exists — that is how Argo CD knows about the management cluster it deploys to today.
 3. The workload namespaces are pre-created, but the workload cluster is **not registered yet** — that is correct for Lab 1 and is exactly what Lab 2 sets up.
 
-> **If any row says `FAIL`:** run `reset-lab.sh CP-lab-01` (without `--verify-only`) to rebuild the starting state. **Warning:** a full reset **discards any lab work you have in progress** and forces every course repository back to its baseline. On the first run of the day there is nothing to lose, so this is safe now. The command will ask you to type the checkpoint name to confirm.
+> **If any row says `FAIL`:** run `reset-lab.sh CP-lab-01 --local` (without `--verify-only`) to rebuild the starting state. **Warning:** a full reset **discards any lab work you have in progress** and forces every course repository back to its baseline. On the first run of the day there is nothing to lose, so this is safe now. The command will ask you to type the checkpoint name to confirm.
 
 ### 5.2 Look at "healthy" in the web interface
 
@@ -137,9 +145,9 @@ Switch to your browser tab with Argo CD open at `https://localhost:8443`. You sh
 
 You will watch this lab from three surfaces at once. Arrange them now so the layout is familiar before anything moves:
 
-- **Window A — the browser**, on the Argo CD Applications page (above).
-- **Window B — an SSH terminal** for the `argocd` command line (you log in to it in Section 6.2).
-- **Window C — a second SSH terminal** watching the live cluster. Start the watch now and leave it running:
+- **Window A — Firefox**, on the Argo CD Applications page (above).
+- **Window B — a VM terminal window** for the `argocd` command line (you log in to it in Section 6.2). Run `source ~/argo-lab-env.sh` in it first.
+- **Window C — a second VM terminal window** watching the live cluster. Run `source ~/argo-lab-env.sh`, then start the watch now and leave it running:
 
 ```bash
 kubectl --context k3d-mgmt -n hello get pods -w
@@ -170,9 +178,9 @@ If you are already looking at the Applications list, you are logged in — skip 
 
 **What to do:**
 
-1. If the browser warns about the certificate, accept it — Argo CD uses a **self-signed certificate** (one it made itself), which is expected and safe on your own tunnel. Chrome/Edge: **Advanced → Proceed to localhost**. Firefox: **Advanced → Accept the Risk and Continue**.
+1. If Firefox warns about the certificate, accept it — Argo CD uses a **self-signed certificate** (one it made itself), which is expected and safe on this local lab address. In Firefox: **Advanced → Accept the Risk and Continue**.
 2. **Username:** `admin`.
-3. **Password:** the value from `cat ~/course/credentials/argocd-admin.txt` in your SSH session.
+3. **Password:** the value from `cat ~/course/credentials/argocd-admin.txt` in a VM terminal window.
 4. Click **Sign In**. You land on the Applications list.
 
 <!-- CAPTURE-SPEC: SS-L1-01 — Argo CD login page. State: logged out, browser at https://localhost:8443/login after accepting the self-signed cert. Highlight: the Username and Password fields and the Sign In button. Fidelity: full page. -->
@@ -292,6 +300,8 @@ Do these in order — each is a little harder than the last, and E2 builds on E1
 
 **Input:** The Application manifest fields, plus the chart it points at (`chart/values.yaml`, which names the container image).
 
+**Predict first — before you read the shape below.** Without counting yet, write down a single number: how many external things do you think this one small Application depends on? Most people guess two or three. Hold your number, then build the table and count the rows — being surprised is the point.
+
 **Shape of a correct answer:** a table with one row per external dependency. A complete answer has **around eight rows** and includes: the Git server/repo, the revision, the chart path, the destination server, the destination namespace, the governing project, the repository credentials (note: **none** — this repo is public-read), and the container image registry/repository. Each row should name *what fails if that dependency is unavailable*. Example row shape (fill the rest yourself):
 
 | Dependency | Where it is named | What breaks if it fails |
@@ -305,6 +315,8 @@ Do these in order — each is a little harder than the last, and E2 builds on E1
 - *Hint 3:* "Credentials" is a dependency even when the answer is "none." Note *why* none are needed here (public-read repo) and predict how Lab 2's private repo will differ.
 
 **Success criterion:** Your table names a dependency for each addressing field in the manifest **plus** the container image, and each row states a concrete failure. If you can point at a manifest field (or the values file) for every row, you are done.
+
+> **Every dependency you just circled is a future incident.** This short list is not busywork — it is a complete map of everything that can break `hello-reconcile` from the outside, and it is *the exact list the Capstone breaks*, one layer at a time (insight **I-L1-01**). A disconnected cluster, a bad revision, a missing chart path, an expired credential: each is one row in your table, arriving unannounced on Day 2.
 
 ---
 
@@ -491,8 +503,8 @@ Then answer in one or two sentences: **"If the UI were down, which surface would
 |---|---|---|
 | **Nothing happens for up to a minute** after `git push` | The reconciliation timer (tuned to `60s` here) has not fired yet. This is **not** a failure. | Wait, or click **Refresh** on the application to force an immediate check. |
 | Commands run against the wrong cluster; resources "missing" | `kubectl` used a different (or default) context. | Always include `--context k3d-mgmt`. Confirm with `kubectl config current-context`. |
-| Browser: "This site can't be reached" at `https://localhost:8443` | The SSH tunnel is not running. | Re-run the tunnel command from the student setup guide. |
-| Browser certificate warning | Argo CD's self-signed certificate. Expected. | Accept it (Advanced → Proceed). It is safe on your own tunnel. |
+| Firefox: "Unable to connect" at `https://localhost:8443` | Firefox is not running inside the VM desktop, or the Argo CD Pods are not ready. | Confirm Firefox is running inside the VM desktop and the Argo CD pods are Running (`kubectl --context k3d-mgmt -n argocd get pods`). |
+| Firefox certificate warning | Argo CD's self-signed certificate. Expected. | Accept it (Advanced → Accept the Risk and Continue). It is safe on this local lab address. |
 | `git push` rejected / asks repeatedly for a password | Push needs your Gitea write credentials (the repo is public-*read* only). | Use username `student` and the password from `~/course/credentials/gitea-student.txt`. |
 | App shows `OutOfSync` but you expected it to deploy on its own | The sync policy is **Manual** on purpose in this lab. | Click **Sync** (or `argocd app sync hello-reconcile`). Automated sync arrives in Lab 3. |
 | `curl` returns the **old** message after syncing | The rollout had not finished, or the port-forward is on the wrong namespace. | Confirm `Synced`/`Healthy`, then re-run the port-forward with `-n hello`. |
@@ -558,5 +570,5 @@ You have watched one change move from Git to a running workload, and you did it 
 
 Next, **Guide 03 — Production-Oriented Configuration** explains how a real platform is shaped: installation choices, declarative onboarding, and — most importantly — how a *separate* workload cluster is registered with least-privilege credentials. Then **Lab 2 — Configure the Platform and Register a Target** has you build that topology yourself: connect a private repository (contrast that with today's public-read one, which needed no credentials), register a real workload cluster, and create an AppProject and Application declaratively.
 
-**Before you move on:** no cleanup is required — the extra commits you made in `hello-reconcile` are harmless. When Lab 2 begins, the instructor (or you) will run `reset-lab.sh CP-lab-02` to hand you Lab 2's exact starting state.
+**Before you move on:** no cleanup is required — the extra commits you made in `hello-reconcile` are harmless. When Lab 2 begins, the instructor (or you) will run `reset-lab.sh CP-lab-02 --local` to hand you Lab 2's exact starting state.
 ```

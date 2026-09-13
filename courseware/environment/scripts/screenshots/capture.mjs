@@ -193,10 +193,11 @@ async function captureShot(context, shot, cfg, baseUrl) {
 
   const url = `${baseUrl}${shot.route || "/"}`;
   // Application detail pages hold a live event stream open, so they never reach
-  // "networkidle"; such shots set `wait_until: load` in the manifest.
-  await page.goto(url, { waitUntil: shot.wait_until || "networkidle", timeout: 45000 });
-  // Argo CD's UI hydrates after the initial load; give it a beat to render.
-  await page.waitForTimeout(1500);
+  // "networkidle". Default to "load" (which fires reliably) plus a fixed settle
+  // for SPA hydration and data fetch; a shot may override via `wait_until`.
+  await page.goto(url, { waitUntil: shot.wait_until || "load", timeout: 45000 });
+  // Argo CD's UI hydrates and fetches data after the initial load; give it time.
+  await page.waitForTimeout(shot.settle_ms || 3500);
   await runActions(page, shot.actions);
 
   const selector = shot.highlight ? shot.highlight.selector : null;

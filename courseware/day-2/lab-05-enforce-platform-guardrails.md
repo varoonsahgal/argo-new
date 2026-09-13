@@ -21,10 +21,12 @@
 > Budget closer to **50 minutes** if this is your first time writing an AppProject from a specification. The two Argo CD configuration applies in this lab normally leave your logged-in session alone, so no time is reserved for re-logging in; Section 6.2 covers the one case where a re-login is needed.
 >
 > **What you need open before you start:**
-> - your SSH (Secure Shell) session to the VM (virtual machine), from the student setup guide,
-> - a browser with the Argo CD tunnel running (`https://localhost:8443`), logged in as `admin`,
+> - a MATE Terminal window on the VM (virtual machine) desktop (run `source ~/argo-lab-env.sh` in each new one),
+> - Firefox inside that same desktop with the Argo CD web interface (`https://localhost:8443`), logged in as `admin` — because Firefox runs on the VM, `localhost` already means the VM and there is no tunnel to start,
 > - the `argocd` command line, already logged in as `admin` (confirm with `argocd account get-user-info`),
-> - a terminal where you can `git` against your own clone of the `platform-config` repository (it lives at `~/platform-config`; the commands below run from your home directory, `~`).
+> - a VM terminal window where you can `git` against your own clone of the `platform-config` repository (it lives at `~/platform-config`; the commands below run from your home directory, `~`).
+>
+> **This lab runs on your pre-provisioned course VM.** If you have not completed **Lab 0 — Prepare Your VM for Lab 1**, do that first: it builds the two clusters, Argo CD, Gitea, and reaches the starting checkpoint.
 
 ---
 
@@ -149,10 +151,10 @@ Your starting state is checkpoint **`CP-lab-05`**: Lab 4's `storefront` Applicat
 
 ### 5.1 Run the verifier (it changes nothing)
 
-In your SSH session:
+In a MATE Terminal window on the VM desktop, first run `source ~/argo-lab-env.sh` (do this in every new VM terminal so the pinned `kubectl`, `helm`, `argocd`, and the course scripts are on your `PATH`). Then run:
 
 ```bash
-reset-lab.sh CP-lab-05 --verify-only
+reset-lab.sh CP-lab-05 --verify-only --local
 ```
 
 The `--verify-only` flag prints a PASS/FAIL table **without changing anything**.
@@ -186,7 +188,7 @@ The `--verify-only` flag prints a PASS/FAIL table **without changing anything**.
 PASS CP-lab-05 is in the expected state.
 ```
 
-If any row says **FAIL**, run `reset-lab.sh CP-lab-05` (without `--verify-only`) to restore the checkpoint. **Warning:** a full reset discards any lab work you have not committed and pushed.
+If any row says **FAIL**, run `reset-lab.sh CP-lab-05 --local` (without `--verify-only`) to restore the checkpoint. **Warning:** a full reset discards any lab work you have not committed and pushed.
 
 Notice the two rows that assert an **absence**: `Application team-a-guestbook absent` and `AppProject team-a absent`. The verifier is not merely silent about team-a — it actively checks that team-a does not exist yet, because that is the correct starting state. (A "PASS" on an *absent* row means the thing is confirmed missing, which is what you want here.) You will create both of those objects, plus the `team-a-dev` RBAC grant, in Exercise 1.
 
@@ -815,6 +817,8 @@ And yet the UI dialog you read a moment ago still offers to delete all managed r
 | `kubectl delete application <name>` | absent | **survive**, orphaned on the workload cluster |
 | `argocd app delete <name>` (CLI default) or the UI dialog's Foreground/Background | absent | **deleted anyway** — the server adds the propagation behaviour to the request |
 
+> **Say the rule out loud now, not only in the takeaways:** the deletion danger does not live in the object — it lives in the delete **path**. Whether the workloads die is decided by *how the delete is requested* (the propagation policy the client asks for, or a finalizer running the cascade), not by any field you can read on the Application. An Application that shows `<none>` for finalizers is not safe; it is one `argocd app delete` away from taking its workloads down with it (insight **I-L5-06**).
+
 **Write two or three sentences** answering: *why is "there is no finalizer on it" a dangerous thing to rely on?* Your answer should connect the delete **path** to the outcome, not the object's fields. This is the reasoning the capstone expects from you when an Application and its workloads disappear together.
 
 **Difficulty:** medium. **Time:** 5 min.
@@ -876,6 +880,17 @@ You have passed this lab when:
 4. `git -C ~/platform-config log --oneline -1` shows your own commit containing `projects/team-a.yaml` and the `argocd/values.yaml` edit.
 
 > **Self-check without a solution file:** every criterion above is a `Yes`/`No`, a status, a commit, or a message string you can read yourself. If a denial landed in a *different* layer than you predicted, that mismatch is the most valuable thing you will learn today — go back and re-read the message, asking "which system's vocabulary is this written in?"
+
+### Design debrief — rank the denials, then fix the worst one
+
+You collected refusals from four different guards. Now judge them as a platform *engineer*, not only as a diagnostician: **a guardrail is only as good as the message it fails with.** Rank these four by how easily a developer who hit them cold — with no access to your `argocd-server` logs — could diagnose and fix them *themselves*:
+
+- **Argo CD RBAC** (E4-A): `permission denied` (terse).
+- **AppProject destination** (E3-A): `InvalidSpecError … do not match any of the allowed destinations in project 'team-a'`.
+- **AppProject cluster-scoped** (E3-B): `ComparisonError … can not be managed when in namespaced mode`.
+- **Kubernetes 403** (E4-B): `forbidden … system:serviceaccount:argocd-access:argocd-manager`.
+
+Then tackle the worst one: the terse `permission denied` almost certainly ranks last — **write a better message for it.** What would it need to say to be self-serviceable *without* leaking the existence of an object the caller is not allowed to see? (There may be no fully satisfying answer, and noticing that tension is part of the lesson.) This is a rehearsal of the Capstone's closing step, where you must name a guardrail or monitoring change that prevents recurrence — and a guardrail nobody can interpret is not prevention (insight **I-L5-07**).
 
 ---
 

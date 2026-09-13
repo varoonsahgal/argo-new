@@ -4,10 +4,12 @@
 > **Argo CD version this course targets: `v3.5.2`** (Helm chart `10.8.4`, Kubernetes `v1.35`; the repo-server renders charts with **Helm v4.2.1**).
 > **Scaffolding level: G2 (reduced).** Every *new* idea in this lab — sync waves, self-heal, rendering-versus-ordering failures, promotion — is still explained in full **before** you use it. What is *no longer* re-explained is the mechanics you already own from Labs 1 and 2: logging in, finding an Application, reading a diff, running `argocd` and `kubectl`. From here on you will often be asked to write a command or a manifest change **yourself** before the guide shows one way to do it.
 > **What you need open before you start:**
-> - your SSH session to the VM (from the student setup guide),
-> - a browser with the Argo CD tunnel running (`https://localhost:8443`), logged in as `admin`,
+> - a MATE Terminal window on the VM desktop (run `source ~/argo-lab-env.sh` in each new one),
+> - Firefox inside that same desktop with the Argo CD web interface (`https://localhost:8443`), logged in as `admin` — because Firefox runs on the VM, `localhost` already means the VM and there is no tunnel to start,
 > - the `argocd` command line, already logged in as `admin` (confirm with `argocd account get-user-info`),
-> - a terminal where you can `git` against your own clone of the `storefront-gitops` and `platform-config` repositories (Lab 2 set these up).
+> - a VM terminal window where you can `git` against your own clone of the `storefront-gitops` and `platform-config` repositories (Lab 2 set these up).
+>
+> **This lab runs on your pre-provisioned course VM.** If you have not completed **Lab 0 — Prepare Your VM for Lab 1**, do that first: it builds the two clusters, Argo CD, Gitea, and reaches the starting checkpoint.
 
 ---
 
@@ -103,10 +105,10 @@ Before you change anything, prove the environment is in the known-good starting 
 
 ### 5.1 Run the verifier (it changes nothing)
 
-In your SSH session:
+In a MATE Terminal window on the VM desktop, first run `source ~/argo-lab-env.sh` (do this in every new VM terminal so the pinned `kubectl`, `helm`, `argocd`, and the course scripts are on your `PATH`). Then run:
 
 ```bash
-reset-lab.sh CP-lab-03 --verify-only
+reset-lab.sh CP-lab-03 --verify-only --local
 ```
 
 The `--verify-only` flag prints a PASS/FAIL table **without changing anything**.
@@ -127,7 +129,7 @@ The `--verify-only` flag prints a PASS/FAIL table **without changing anything**.
 PASS CP-lab-03 is in the expected state.
 ```
 
-If any row says **FAIL**, run `reset-lab.sh CP-lab-03` (without `--verify-only`) to restore the checkpoint. **Warning:** a full reset discards any lab work you have not committed and pushed.
+If any row says **FAIL**, run `reset-lab.sh CP-lab-03 --local` (without `--verify-only`) to restore the checkpoint. **Warning:** a full reset discards any lab work you have not committed and pushed.
 
 ### 5.2 Confirm the starting picture in the UI
 
@@ -437,6 +439,12 @@ Throughout, **predict before you observe.** Fill your prediction in first, then 
 - *Hint 2:* If self-heal seems not to fire, click **Refresh** — the debounce timer starts *after* the comparison discovers the drift, and the comparison is on the 60-second loop.
 - *Hint 3:* A good reason to set per-resource `Prune=false` is defense-in-depth: it keeps that one resource safe even if someone enables app-wide prune later.
 
+**Debrief — a decision, not a rule.** You have now watched self-heal undo a manual edit twice. Before moving on, work this scenario with a partner or in your notes:
+
+> *It is 2 a.m. Production needs **10 replicas right now** to survive a traffic spike, and self-heal is on. You scale the Deployment — and 30 seconds later it snaps back to 1. What do you actually do?*
+
+Write your answer before reading further. The wrong answer is to keep scaling and fight the loop. Two answers are defensible: **disable automated sync on that one Application, stabilize, then commit the real number to Git** — or **commit `replicas: 10` first and let the sync carry it.** The point of the exercise is *why*: **Git wins because a human turned on a switch that says Git wins.** Self-heal is a policy about who wins ties, not a safety feature (insight **I-L3-02**). Naming it that way is what lets you make the right call at 2 a.m. instead of scaling five times.
+
 ---
 
 ### Exercise 5 — Break it two ways, and recover through Git
@@ -603,4 +611,4 @@ You have finished Day 1. You built one Git-to-cluster deployment, ran it across 
 
 Tomorrow the question changes from *"how do I deploy one application safely?"* to *"how do I deploy fifty without multiplying my blast radius fifty times?"* Day 2 opens with **Session 5 — ApplicationSets and App-of-Apps** (`../day-2/05-applicationsets-and-app-of-apps.md`), where the same chart and the same environments you just used get *generated* instead of hand-written — and where a single template change can touch every environment at once. The reconciliation loop, the two status axes, and the render-versus-sync distinction you drilled today are exactly the tools you will use to keep that power under control.
 
-> **Note on reset:** the Day 2 environment removes today's hand-made storefront Applications on purpose (the Day 2 recap explains why). Your instructor runs `reset-lab.sh CP-lab-04` between the days — you do not need to preserve today's Applications.
+> **Note on reset:** the Day 2 environment removes today's hand-made storefront Applications on purpose (the Day 2 recap explains why). Your instructor runs `reset-lab.sh CP-lab-04 --local` between the days — you do not need to preserve today's Applications.

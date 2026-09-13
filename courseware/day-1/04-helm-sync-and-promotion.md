@@ -454,6 +454,20 @@ A team renders the `storefront` chart (which sets `replicas` from `replicaCount`
 **Rationale:** this is the exact "unclear ownership" the outline warns about, and it is why Kustomize-on-Helm should be reserved for tweaks the chart genuinely cannot express. It gets sharper if an **HPA** also manages `replicas`: now the chart, the patch, and the autoscaler all claim the same field, and they will fight. Guardrails for this belong in guide 06.
 </details>
 
+### S4-QC5 — Forty applications drift and nobody committed anything
+
+You upgrade Argo CD on Monday. You touch **no chart** and **no values file** — no commits at all. On Tuesday, forty applications show a diff. Predict: what happened, and what one cheap step on the Monday *before* the upgrade would have caught it?
+
+<details>
+<summary>Show answer and rationale</summary>
+
+**Argo CD's own bundled Helm version changed, so the same charts rendered different manifests** — most visibly for charts that relied on `null`/nil values being dropped during coalescing, which Helm 4 handles differently. Nobody changed the desired state in Git; you changed the **thing that renders** the desired state. Because Argo CD renders with `helm template` and applies the result itself, **Helm's version is part of your desired state** (insight **I-S4-02**).
+
+The cheap Monday step: **render your real charts with the new version's Helm and `diff` the output before upgrading.** That is what "test compatibility before an upgrade" actually means, and guide 07 turns it into a rehearsed lifecycle step.
+
+**Rationale:** under the wrong "Argo CD runs `helm upgrade`" model this is inexplicable — no release changed, no chart changed. Under the correct render-and-apply model it is obvious: replace the renderer, and the pages come out different.
+</details>
+
 ---
 
 ## 8. Try It Yourself (optional, ~5 minutes, changes nothing on any cluster)

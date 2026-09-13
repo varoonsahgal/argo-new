@@ -4,9 +4,11 @@
 > **Argo CD version this course targets: `v3.5.2`** (Helm chart `10.8.4`, Kubernetes `v1.35`).
 > **Scaffolding level: G1 (maximally guided).** Exact clicks, exact commands, and a screenshot at every meaningful step. This is the last lab that holds your hand this tightly — from Lab 3 onward you produce more of the work yourself.
 > **What you need open before you start:**
-> - your SSH session to the VM (from the student setup guide),
-> - a browser with the Argo CD tunnel running (`https://localhost:8443`), logged in as `admin`,
-> - the `argocd` command line, already logged in as `admin` on your VM (the setup guide did this; confirm with `argocd account get-user-info`).
+> - a MATE Terminal window on the VM desktop (run `source ~/argo-lab-env.sh` in each new one),
+> - Firefox inside that same desktop with the Argo CD web interface (`https://localhost:8443`), logged in as `admin` — because Firefox runs on the VM, `localhost` already means the VM and there is no tunnel to start,
+> - the `argocd` command line, already logged in as `admin` on your VM (Lab 0 did this; confirm with `argocd account get-user-info`).
+>
+> **This lab runs on your pre-provisioned course VM.** If you have not completed **Lab 0 — Prepare Your VM for Lab 1**, do that first: it builds the two clusters, Argo CD, Gitea, and reaches the starting checkpoint.
 
 ---
 
@@ -105,10 +107,10 @@ Before you change anything, prove the environment is in the known-good starting 
 
 ### 5.1 Run the verifier (it changes nothing)
 
-In your SSH session, run:
+In a MATE Terminal window on the VM desktop, first run `source ~/argo-lab-env.sh` (do this in every new VM terminal so the pinned `kubectl`, `helm`, `argocd`, and the course scripts are on your `PATH`). Then run:
 
 ```bash
-reset-lab.sh CP-lab-02 --verify-only
+reset-lab.sh CP-lab-02 --verify-only --local
 ```
 
 The `--verify-only` flag prints a PASS/FAIL table **without changing anything**.
@@ -135,7 +137,7 @@ PASS CP-lab-02 is in the expected state.
 3. The **workload namespaces already exist**. The platform team pre-creates them (in a real Rancher/RKE2 platform these map to Rancher Projects that own namespaces). You do **not** create namespaces in this lab.
 4. The **skeleton files exist with `TODO` markers** in the `platform-config` repository. You complete them in E4.
 
-> **If any row says `FAIL`:** run `reset-lab.sh CP-lab-02` (without `--verify-only`) to rebuild the starting state. **Warning:** a full reset **discards any lab work in progress** and forces every course repository back to its Lab 2 baseline. On a fresh start there is nothing to lose. The command asks you to type the checkpoint name to confirm.
+> **If any row says `FAIL`:** run `reset-lab.sh CP-lab-02 --local` (without `--verify-only`) to rebuild the starting state. **Warning:** a full reset **discards any lab work in progress** and forces every course repository back to its Lab 2 baseline. On a fresh start there is nothing to lose. The command asks you to type the checkpoint name to confirm.
 
 ### 5.2 Look at "empty" in the web interface
 
@@ -436,6 +438,8 @@ For a **cluster-scoped** check (a resource that has no namespace), drop the `-n 
 
 **Success criterion:** Your four observed answers match your understanding of the design, and you can state in one sentence *why* each `no` is a `no` (missing binding, unlisted namespace, or missing cluster-scoped grant). This is the 401-vs-403 muscle you will reuse in Lab 5 and the Capstone.
 
+> **Name the payoff now, because Lab 5 and the Capstone grade it.** Every `no` above is **Kubernetes** deciding authorization — a `403 Forbidden` the API server returns *after* a request reaches the cluster. That is a different fence from **Argo CD's own** authorization, which refuses an action *before* any sync operation reaches Kubernetes at all. The field-usable rule you are building here: **if the sync never started, it was Argo CD that said no; if the sync started and then failed, it was Kubernetes.** You will tell these two apart under pressure in Lab 5 and the Capstone.
+
 ---
 
 ### E4 — Create the AppProject and Application declaratively
@@ -641,6 +645,28 @@ By default Argo CD notices repository changes on a timer. A **webhook** makes Gi
 
 > **Marked partly verified.** The exact webhook payload/secret handshake between this Gitea version and Argo CD v3.5.2 has not been fully verified for this environment. Treat this as an experiment: if the webhook does not fire, fall back to **Refresh** and note what you observed. Do not spend more than a few minutes here.
 
+**Option C — Watch a healthy cluster go `Unknown` (fully local, fully reversible).**
+This rehearses a real incident — a workload cluster Argo CD can no longer reach — a full day before you meet it again in the Capstone. You will break the *connection*, not the cluster.
+
+**Predict first (write it down before you touch anything):** if you make the `cluster-workload` credential invalid so Argo CD can no longer authenticate to the workload cluster, will `storefront-dev` become **`OutOfSync`**, **`Degraded`**, or **`Unknown`**?
+
+Now break the connection by corrupting the bearer token in the cluster Secret (this is reversible — you restore it in the last step):
+
+```bash
+kubectl --context k3d-mgmt -n argocd patch secret cluster-workload --type merge \
+  -p '{"stringData":{"config":"{\"bearerToken\":\"invalid\",\"tlsClientConfig\":{\"insecure\":true}}"}}'
+```
+
+In the Argo CD web interface, open `storefront-dev` and click **Refresh**. Compare what you see against your prediction. The answer is **`Unknown`** — not `OutOfSync` and not `Degraded`. Argo CD is not reporting that the app is broken; it is reporting that it **can no longer observe live state at all**. Absence of evidence renders as `Unknown`, which is the single most misdiagnosed status in Argo CD (insight **I-L2-06**).
+
+Restore the real credential and watch it recover on its own. The cleanest way is to reset this lab's known-good state (the command asks you to type the checkpoint name to confirm):
+
+```bash
+reset-lab.sh CP-lab-03 --local
+```
+
+(If you would rather restore by hand, re-run your E2 render of the `cluster-workload` Secret so its `config` holds the real token again.) Refresh `storefront-dev` once more: the status returns to `OutOfSync` / `Missing`, because Argo CD can see the cluster again. **`Unknown` was never a statement about the app — it was a statement about Argo CD's eyesight.**
+
 ---
 
 ## 12. Transition — what's next
@@ -649,4 +675,4 @@ You have built the real platform topology: a private repository connected, a sep
 
 Next, **Guide 04 — Helm Deployments, Synchronization, and Promotion** explains how Argo CD uses Helm to *render* manifests (not to run a Helm release), how sync controls and waves order a deployment, and how you promote a change from one environment to the next through Git. Then **Lab 3 — Deploy, Introduce Drift, and Recover** has you finally **sync** `storefront-dev` to the workload cluster you registered today, deliberately introduce drift, turn on safe self-healing, and recover a rendering failure through Git.
 
-**Before you move on:** no cleanup is required — your commits in `platform-config` are the intended Lab 2 output. When Lab 3 begins, the instructor (or you) will run `reset-lab.sh CP-lab-03 --verify-only` to confirm today's end state before starting.
+**Before you move on:** no cleanup is required — your commits in `platform-config` are the intended Lab 2 output. When Lab 3 begins, the instructor (or you) will run `reset-lab.sh CP-lab-03 --verify-only --local` to confirm today's end state before starting.

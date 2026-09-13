@@ -42,10 +42,14 @@ state_dir()   { printf '%s/%s.orig' "${CAP_STATE}" "$1"; }
 valid_fault() { case "$1" in F1|F2|F3|F4|F5|F6|F7) return 0 ;; *) return 1 ;; esac; }
 
 # Reverse of FAULT_ORDER, for `revert all`.
+# Built as a plain string, not an array: under `set -u`, bash 3.2 (the macOS
+# build machine's /bin/bash) aborts on "${out[@]}" while the array is still
+# empty, which broke `revert all` and every reset that calls it.
 reverse_fault_order() {
-  local out=() f
-  for f in ${FAULT_ORDER}; do out=("${f}" "${out[@]}"); done
-  printf '%s\n' "${out[@]}"
+  local out="" f
+  for f in ${FAULT_ORDER}; do out="${f} ${out}"; done
+  # shellcheck disable=SC2086  # deliberate word splitting: one fault per line
+  printf '%s\n' ${out}
 }
 
 # Run one fault's inject/verify/revert script with its state dir wired in.

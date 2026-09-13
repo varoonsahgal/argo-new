@@ -4,10 +4,12 @@
 > **Argo CD version this course targets: `v3.5.2`** (Helm chart `10.8.4`, Kubernetes `v1.35`; the repo-server renders charts with **Helm v4.2.1**).
 > **Scaffolding level: G2 (reduced).** Every *new* idea in this lab — how an ApplicationSet generates and owns Applications, the `applicationsSync` protection policy, tracing a failure to the layer that owns it — is explained in full **before** you use it. What is *no longer* re-explained is the Day 1 mechanics you already own: logging in, finding an Application, reading a diff, running `argocd` and `kubectl --context …`. From here on you will often write a command or a manifest change **yourself** before the guide confirms one correct shape.
 > **What you need open before you start:**
-> - your SSH (Secure Shell) session to the VM (virtual machine), from the student setup guide,
-> - a browser with the Argo CD tunnel running (`https://localhost:8443`), logged in as `admin`,
+> - a MATE Terminal window on the VM (virtual machine) desktop (run `source ~/argo-lab-env.sh` in each new one),
+> - Firefox inside that same desktop with the Argo CD web interface (`https://localhost:8443`), logged in as `admin` — because Firefox runs on the VM, `localhost` already means the VM and there is no tunnel to start,
 > - the `argocd` command line, already logged in as `admin` (confirm with `argocd account get-user-info`),
-> - a terminal where you can `git` against your own clones of the `platform-config` and `storefront-gitops` repositories.
+> - a VM terminal window where you can `git` against your own clones of the `platform-config` and `storefront-gitops` repositories.
+>
+> **This lab runs on your pre-provisioned course VM.** If you have not completed **Lab 0 — Prepare Your VM for Lab 1**, do that first: it builds the two clusters, Argo CD, Gitea, and reaches the starting checkpoint.
 
 ---
 
@@ -103,10 +105,10 @@ Your starting state is checkpoint **`CP-lab-04`**: Day 1's hand-made storefront 
 
 ### 5.1 Run the verifier (it changes nothing)
 
-In your SSH session:
+In a MATE Terminal window on the VM desktop, first run `source ~/argo-lab-env.sh` (do this in every new VM terminal so the pinned `kubectl`, `helm`, `argocd`, and the course scripts are on your `PATH`). Then run:
 
 ```bash
-reset-lab.sh CP-lab-04 --verify-only
+reset-lab.sh CP-lab-04 --verify-only --local
 ```
 
 The `--verify-only` flag prints a PASS/FAIL table **without changing anything**.
@@ -130,7 +132,7 @@ The `--verify-only` flag prints a PASS/FAIL table **without changing anything**.
 PASS CP-lab-04 is in the expected state.
 ```
 
-If any row says **FAIL**, run `reset-lab.sh CP-lab-04` (without `--verify-only`) to restore the checkpoint. **Warning:** a full reset discards any lab work you have not committed and pushed.
+If any row says **FAIL**, run `reset-lab.sh CP-lab-04 --local` (without `--verify-only`) to restore the checkpoint. **Warning:** a full reset discards any lab work you have not committed and pushed.
 
 ### 5.2 Confirm the starting picture in the UI
 
@@ -380,6 +382,8 @@ You can confirm the policy is in force on the ApplicationSet's manifest:
 
 **Starter state.** `root/platform-root.yaml` and `apps/*.yaml` are staged at `CP-lab-04`, in the `platform` project. Nothing is applied yet.
 
+> **Predict first.** Before you apply anything, write down two things: **how many** child Applications `platform-root` will create, and **what determines that number.** The count is not set anywhere in the root manifest — it is decided by the files under the root's `source.path` (`apps/`), one child per Application manifest in that folder (insight **I-L4-02**). This is the family tree from Section 4: the root does not *list* its children, it *points at a folder* and adopts whatever is inside.
+
 **Do this.** Apply the root Application to the management cluster:
 
 ```bash
@@ -459,6 +463,22 @@ kubectl --context k3d-mgmt -n argocd get applicationset storefront \
 
 <!-- CAPTURE-SPEC: SS-L4-07 — ApplicationSet error condition. State: after E5A push removing namespace from envs/staging/config.yaml, route /applicationsets/storefront Summary/Conditions. Highlight: ErrorOccurred condition with "map has no entry for key namespace" message; existing generated Applications unchanged. Fidelity: panel. Argo CD v3.5.2 (Alpha UI). -->
 
+**Optional (~3 min) — feel why strict is safer by turning it off.** You have just watched the strict factory *refuse*. Now see what a **non-strict** factory does with the very same missing key — without committing or applying anything, so it is completely safe. While staging's `namespace` is still removed, temporarily delete (or comment out) the `goTemplateOptions: ["missingkey=error"]` line in your local `applicationsets/storefront.yaml`, then preview:
+
+```bash
+cd ~/platform-config
+argocd appset generate applicationsets/storefront.yaml -o wide
+```
+
+This time there is **no error**. The ApplicationSet cheerfully renders a `storefront-staging-workload` Application whose namespace field is **empty** (it shows as `<no value>` in the full `-o yaml`), and in a list it looks completely normal — it would fail later, somewhere else, wearing a different disguise. Now restore strictness and re-preview to watch the loud refusal return:
+
+```bash
+git checkout -- applicationsets/storefront.yaml
+argocd appset generate applicationsets/storefront.yaml -o wide
+```
+
+One line changed, two behaviours. The safer configuration **failed more, failed sooner, and failed louder — and that is exactly why it is safer** (insight **I-L4-04**). Ask yourself which of the two you would rather be handed at 4 p.m. on a Friday.
+
 **Trace it and fix it.** Symptom appears on the *ApplicationSet* → owner is the *template + generator input* → the file is `envs/staging/config.yaml` in `storefront-gitops`. Restore the `namespace:` line, commit, and push. The error clears and all three Applications generate again.
 
 #### Part B — a broken child path (the child breaks, the root looks fine)
@@ -509,6 +529,7 @@ kubectl --context k3d-mgmt -n argocd get applicationset storefront \
 | **Blast radius** — what else could this change move? | | |
 | **Deletion behavior** — what happens to staging's Application and its workload? | | |
 | **Preview capability** — can you see the effect before applying? | | |
+| **Cost of one typo** — one mistyped character in this change: what is the worst it does under each pattern? | | |
 
 **What a correct result looks like.** A filled grid where the *trade-offs* are explicit — for example, that the ApplicationSet change is one line but its deletion behavior depends entirely on `applicationsSync` (and is exactly what Exercise 3 protected against), while the App-of-Apps change is a visible file deletion whose cascade behavior depends on the child's finalizer. Your grid should let you answer the outline's question — *when would you prefer each?* — with reasons, not taste.
 
@@ -519,6 +540,7 @@ kubectl --context k3d-mgmt -n argocd get applicationset storefront \
 **Hints.**
 - *Hint 1:* The "deletion behavior" row is where Exercise 3 pays off — recall what `create-update` does when an input disappears.
 - *Hint 2:* The "preview" row is where the lab's rhythm pays off — one pattern has `argocd appset generate`; think about what the equivalent is for a hand-deleted child.
+- *Hint 3:* The "cost of one typo" row forces two ideas together — blast radius (how many targets one edit moves) *and* deletion semantics (what a wrong or vanished input does to a live workload). A typo in a factory input is multiplied by the generator; a typo in a hand-written child is not, but the two patterns delete very differently.
 
 ---
 
@@ -600,4 +622,4 @@ You built both Day 2 patterns, protected one against accidental deletion, and tr
 
 That question is where Day 2 goes next. **Session 6 — Security, Multi-Tenancy, and Governance** (`06-security-multitenancy-governance.md`) makes the boundaries explicit: AppProjects as fences around sources and destinations, Argo CD RBAC versus Kubernetes RBAC, and who is permitted to cause a deletion at all. Then **Lab 5 — Enforce Platform Guardrails** (`lab-05-enforce-platform-guardrails.md`) has you fence in a team and *feel* each denial land in the layer you predicted — including the governance side of the same deletion protection you applied here as a blast-radius control.
 
-> **Note on reset:** your instructor may run `reset-lab.sh CP-lab-05` between this lab and Lab 5. That checkpoint carries your completed, protected `storefront` ApplicationSet and the healthy `platform-root` tree forward, so nothing you built here is lost.
+> **Note on reset:** your instructor may run `reset-lab.sh CP-lab-05 --local` between this lab and Lab 5. That checkpoint carries your completed, protected `storefront` ApplicationSet and the healthy `platform-root` tree forward, so nothing you built here is lost.

@@ -17,8 +17,12 @@ FAULT_ID="F7"
 # shellcheck source=../lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib.sh"
 
-OOM_LIMIT_MEM="64Mi"
-OOM_REQUEST_MEM="48Mi"
+# Calibrated by lab-tester on 2026-09-12 against this sandbox: at 64Mi the
+# repo-server idles at ~40Mi and never OOMs, so the fault silently failed to
+# appear. 32Mi is below the process's own start-up footprint, so the container is
+# OOMKilled during start-up and enters CrashLoopBackOff deterministically.
+OOM_LIMIT_MEM="32Mi"
+OOM_REQUEST_MEM="24Mi"
 
 step "F7 inject — starve argocd-repo-server memory (OOMKilled)"
 

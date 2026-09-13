@@ -198,7 +198,12 @@ main() {
     helm_args+=(-f "${extra}")
     ok "overlay: ${extra}"
   done
-  helm_args+=(--wait --timeout 300s)
+  # --force-conflicts: Helm v4 applies server-side, so any field another manager
+  # has written directly (for example a `kubectl patch` on a Deployment) makes the
+  # upgrade fail with "conflict occurred while applying object". The platform's
+  # declarative configuration is the source of truth here, so the wrapper takes
+  # ownership back instead of refusing to run.
+  helm_args+=(--force-conflicts --wait --timeout 300s)
 
   helm "${helm_args[@]}"
   rm -f "${runtime_secrets}"
