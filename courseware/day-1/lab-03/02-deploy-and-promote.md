@@ -36,7 +36,32 @@ Throughout, **predict before you observe** — fill your prediction first, then 
    ```bash
    helm list -A --kube-context k3d-workload
    ```
-4. Verify the app is serving, using the port-forward + `curl` from Module 1.
+4. **Verify the running app.** Wait until `storefront-dev` shows **`Synced` / `Healthy`**. The Service now exists, so you can open the temporary tunnel introduced in Module 1.
+
+   **Terminal A — run this and leave it running:**
+
+   ```bash
+   kubectl --context k3d-workload -n storefront-dev port-forward svc/storefront 9898:9898
+   ```
+
+   Wait for `Forwarding from 127.0.0.1:9898`.
+
+   **Terminal B — open another terminal tab on the same machine and run:**
+
+   ```bash
+   curl -s localhost:9898 | grep -o '"message": *"[^"]*"'
+   ```
+
+   **Expected:**
+
+   ```text
+   "message": "storefront DEV"
+   ```
+
+   Your request goes through the tunnel to the storefront app in the **workload cluster**. This confirms that the running app serves the expected dev message.
+
+   Keep Terminal A open for later checks. **Ctrl-C** stops the tunnel. If a later deployment replaces the Pod and the tunnel stops working, rerun the port-forward command before using `curl` again.
+
 
 ![storefront-dev tree after first sync: completed PreSync Job, Healthy Deployment (v3.5.2)](../../assets/screenshots/day-1/lab-03-02-synced-with-hook.png)
 
