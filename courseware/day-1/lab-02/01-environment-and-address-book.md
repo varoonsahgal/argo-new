@@ -5,7 +5,7 @@
 
 > **🗺️ Where this module fits.** Nothing gets built in this module. You look around first: what Argo CD knows right now, and the two blank forms you will fill in during Module 2. Think of it as reading the whole recipe before you start cooking.
 
-> **Why are we doing this lab?** Before Argo CD can deploy the storefront application, it needs to know **where to get its deployment files** and **which cluster to deploy them to**, with credentials to access both.
+**Why are we doing this lab?** Before Argo CD can deploy the storefront application, it needs to know **where to get its deployment files** and **which cluster to deploy them to**, with credentials to access both.
 
 This module prepares you to configure those two connections. You will check what is already registered and examine the YAML templates you will fill in next. Nothing gets deployed yet.
 
