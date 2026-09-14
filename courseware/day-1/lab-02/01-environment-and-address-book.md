@@ -5,6 +5,13 @@
 
 > **🗺️ Where this module fits.** Nothing gets built in this module. You look around first: what Argo CD knows right now, and the two blank forms you will fill in during Module 2. Think of it as reading the whole recipe before you start cooking.
 
+> **Why are we doing this lab?** Before Argo CD can deploy the storefront application, it needs to know **where to get its deployment files** and **which cluster to deploy them to**, with credentials to access both.
+
+This module prepares you to configure those two connections. You will check what is already registered and examine the YAML templates you will fill in next. Nothing gets deployed yet.
+
+The key idea: Argo CD stores these connection details as **labeled Kubernetes Secrets**. By the end of this lab, you will understand how creating those Secrets connects Argo CD to your repository and workload cluster.
+
+
 ---
 
 ## 1. Environment check — confirm `CP-lab-02`
