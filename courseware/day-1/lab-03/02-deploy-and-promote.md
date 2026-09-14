@@ -83,37 +83,49 @@ Throughout, **predict before you observe** — fill your prediction first, then 
 **Do it (produce the manifest yourself):**
 
 1. Create `platform-config/applications/storefront-staging.yaml`, modeled on dev. Change only what must change for staging.
-2. **The guardrail step (do not skip):** the `storefront` AppProject permits **only** `storefront-dev`. Widen `platform-config/projects/storefront.yaml` to also permit the `storefront-staging` namespace, or Argo CD will *reject* the new Application (see Troubleshooting).
-3. Commit both files, then apply from the **management** cluster:
+2. **The guardrail step (do not skip):** the `storefront` AppProject permits **only** `storefront-dev`. Widen `platform-config/projects/storefront.yaml` to also permit the `storefront-staging` namespace. If you apply the Application first, `kubectl` still prints `created` — but Argo CD refuses to work with it: the app shows `Unknown` / `Unknown` with an `InvalidSpecError` condition (see Troubleshooting).
+3. Commit both files, then apply from the **management** cluster (run these from your home directory, where both clones live):
    ```bash
    kubectl --context k3d-mgmt -n argocd apply -f platform-config/projects/storefront.yaml
    kubectl --context k3d-mgmt -n argocd apply -f platform-config/applications/storefront-staging.yaml
    ```
-4. Sync `storefront-staging` and verify staging's settings (port-forward to the `storefront-staging` namespace, or read the UI).
+4. Sync `storefront-staging` and verify staging's settings. Either port-forward to the `storefront-staging` namespace (pick another local port, such as `9899:9898`, if dev's tunnel is still open on `9898`), or open `storefront-staging` in the UI and click **Details** → **Parameters**.
 
 > **💡 Why the guardrail step exists.** In Lab 2 you wrote the AppProject to allow exactly one namespace. A new environment is a new destination, so the rules must be widened on purpose, in a commit. A fence that grows only by reviewed changes is the point of having one.
 
-**Now promote a tag.** A newer podinfo release, **`6.16.0`**, has been validated in `dev`:
+**Now promote a tag.** Both environments start on podinfo **`6.14.1`**. The next release, **`6.15.0`**, is ready to be validated in `dev`:
 
-1. In `storefront-gitops`, set `image.tag: "6.16.0"` in `envs/dev/values.yaml`, commit, push, sync `storefront-dev`, confirm the new version (`curl … | grep version`).
-2. **Promote** by making the *same* one-line change to `envs/staging/values.yaml`, commit, push. Before syncing, render locally to see it is a one-line diff:
+1. In `storefront-gitops`, set `image.tag: "6.15.0"` in `envs/dev/values.yaml`, commit, push, and sync `storefront-dev`. Confirm the new version through dev's port-forward:
+   ```bash
+   curl -s localhost:9898 | grep version
+   ```
+   **Expected:**
+   ```text
+     "version": "6.15.0",
+   ```
+2. **Promote** by making the *same* one-line change to `envs/staging/values.yaml`, commit, push. Before syncing, render locally to see the new tag:
    ```bash
    helm template storefront charts/storefront -f envs/staging/values.yaml | grep 'image:'
    ```
+   **Expected** (the second image belongs to the migration Job, which does not change):
+   ```text
+             image: "stefanprodan/podinfo:6.15.0"
+             image: busybox:1.37.0
+   ```
 3. Sync `storefront-staging`.
 
-> **Environment note:** promoting a new tag pulls a new image on the workload cluster. Your classroom pre-loads `stefanprodan/podinfo:6.16.0`. If offline and that tag is unavailable, the Deployment stalls on `ImagePullBackOff` — recovery is in Troubleshooting, itself a revert-vs-roll-forward lesson.
+> **Environment note:** a new tag means a new container image on the workload cluster. Your classroom pre-loads both `stefanprodan/podinfo:6.14.1` and `stefanprodan/podinfo:6.15.0`, so this promotion downloads nothing. If a new Pod sits in `ImagePullBackOff`, the tag is mistyped or was never pre-loaded. Recovery is in Troubleshooting, and it is itself a revert-vs-roll-forward lesson.
 
-![storefront-staging App Details showing the staging values file (v3.5.2)](../../assets/screenshots/day-1/lab-03-03-parameters-values-files.png)
+![storefront-staging Details, Parameters tab, showing the staging values file (v3.5.2)](../../assets/screenshots/day-1/lab-03-03-parameters-values-files.png)
 
-*Figure SS-L3-03 — After E2: App Details show `envs/staging/values.yaml` driving this environment; 2 replicas.*
+*Figure SS-L3-03 — After E2: `storefront-staging` → **Details** → **Parameters**. VALUES FILES is `../../envs/staging/values.yaml`; `image.tag` is `6.15.0` after the promotion; `replicaCount` is `2`; `ui.message` is `storefront STAGING`.*
 
-<!-- CAPTURE-SPEC: SS-L3-03 — App Details, Helm values-files. State: after E2. Highlight: valueFiles pointing at envs/staging/values.yaml; staging replica/UI values. Argo CD v3.5.2. -->
+<!-- CAPTURE-SPEC: SS-L3-03 — storefront-staging Details → PARAMETERS. State: after E2 promotion and staging sync. Highlight: VALUES FILES ../../envs/staging/values.yaml; image.tag 6.15.0; replicaCount 2. Argo CD v3.5.2. -->
 
 **Success criterion:**
 - `argocd app list` shows **both** apps `Synced` / `Healthy`.
-- `curl` against staging returns **`storefront STAGING`**, and `kubectl --context k3d-workload -n storefront-staging get deploy storefront` shows `2/2`.
-- Staging's `image.tag` matches dev's after promotion, and `git log` on `storefront-gitops` shows the promotion as its own commit.
+- `curl` against staging returns **`storefront STAGING`** and version **`6.15.0`**, and `kubectl --context k3d-workload -n storefront-staging get deploy storefront` shows `2/2`.
+- Staging's `image.tag` matches dev's (`6.15.0`), and `git log --oneline` on `storefront-gitops` shows the dev change and the promotion as two separate commits.
 
 **Hints:**
 - *Hint 1:* The `helm.valueFiles` path is *relative to the chart path* (`charts/storefront`) — count the `../` to the sibling env directory.

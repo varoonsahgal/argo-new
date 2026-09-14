@@ -25,15 +25,15 @@
 
 **▶ Predict first:** will this show as a *comparison/condition* error on the Application, or a *failed sync*? Which component — repo-server or controller — failed?
 
-![storefront-staging ComparisonError from a missing values file (v3.5.2)](../../assets/screenshots/day-1/lab-03-08-comparison-error.png)
+![storefront-staging APP CONDITIONS panel showing a ComparisonError from a missing values file (v3.5.2)](../../assets/screenshots/day-1/lab-03-08-comparison-error.png)
 
-*Figure SS-L3-08 — After Part A: a **ComparisonError** condition — the repo-server could not render because the referenced values file is missing.*
+*Figure SS-L3-08 — After Part A: the **Application conditions** panel (click **APP CONDITIONS — 1 Error** in the header) shows a **ComparisonError**. The repo-server could not render because the referenced values file is missing.*
 
-**🔍 Notice:** the error is an Application **condition** (`ComparisonError`) at the app level — **not** inside a sync result. The message names the **missing values file**. Nothing on the cluster changed: with no rendered manifests, there was nothing to apply.
+**🔍 Notice:** the header shows **APP CONDITIONS — 1 Error**; click it to read the condition. The error is an Application **condition** (`ComparisonError`) at the app level — **not** inside a sync result. The message ends by naming the **missing values file**: `open <path to cached source>/envs/staging/values-DOESNOTEXIST.yaml: no such file or directory`. Sync status turns `Unknown` (with nothing rendered, there is nothing to compare), while health stays `Healthy`: nothing on the cluster changed, because there was nothing to apply. A pop-up saying `Unable to load data: revision main must be resolved` may also appear; it is the same rendering failure, seen by the UI.
 
-<!-- CAPTURE-SPEC: SS-L3-08 — Application error condition. State: after Part A broken valueFiles. Highlight: ComparisonError banner, no sync result changes. Argo CD v3.5.2. -->
+<!-- CAPTURE-SPEC: SS-L3-08 — APP CONDITIONS panel. State: after Part A broken valueFiles, applied, refreshed. Highlight: ComparisonError row naming the missing values file. Argo CD v3.5.2. -->
 
-**Recover:** restore the correct `valueFiles` reference **through Git** (a `git revert` of the breaking commit is cleanest), apply, refresh. Confirm the `ComparisonError` clears.
+**Recover:** restore the correct `valueFiles` reference **through Git** (a `git revert` of the breaking commit is cleanest), apply, refresh. Confirm the `ComparisonError` clears. If `storefront-staging` then shows `OutOfSync` on its Service, that is your E4 `Prune=false` commit, which staging (still manual sync) has not applied yet: sync `storefront-staging` to finish.
 
 > **✅ Part A in one line:** the Application pointed at a file that is not there, so the **repo-server** could not render anything. The evidence is an Application **condition**, the cluster was never touched, and the fix lived in **`platform-config`**.
 
@@ -41,44 +41,84 @@
 
 The chart ships a **PreSync** "database migration" Job. When `migration.shouldFail` is `true`, the Job runs `exit 1` and, with `backoffLimit: 0`, fails immediately and permanently. Since it is a **PreSync** hook, the **Sync** phase after it — your `ConfigMap`, `Deployment`, `Service` — **never runs**.
 
-**Do it:** in `storefront-gitops`, set `migration.shouldFail: true` in `envs/dev/values.yaml`. Commit and push. Because `storefront-dev` now has auto-sync on, Argo CD attempts the sync on its own.
+**One fact you need first: a hook is not one of the resources Argo CD compares.** Argo CD runs the migration Job *during* a sync, but it leaves the Job out when it asks "does the cluster match Git?". So a commit that changes only the hook leaves the app `Synced` — and automated sync starts only when an app is `OutOfSync`. To run this migration, you start the sync yourself.
 
-**▶ Predict first — Job, Secret, or wave problem?**
+**Do it:**
 
-| Symptom | Hypothesis (Job / Secret / wave) | Where is the evidence? (hook result / diff / events) |
+1. In `storefront-gitops`, add this block to the end of `envs/dev/values.yaml`, then commit and push:
+   ```yaml
+   migration:
+     shouldFail: true
+   ```
+2. **▶ Predict first:** `storefront-dev` has auto-sync on. Will Argo CD run this commit on its own? Then check:
+   ```bash
+   argocd app get storefront-dev --refresh | grep -E "Sync Status|Health Status"
+   ```
+   **Expected** (your commit ID will differ), and it stays this way:
+   ```text
+   Sync Status:        Synced to main (405e86c)
+   Health Status:      Healthy
+   ```
+
+**▶ Predict first — before you start the sync: Job, Secret, or wave problem?**
+
+| Symptom you are about to see | Hypothesis (Job / Secret / wave) | Where is the evidence? (hook result / diff / events) |
 |---|---|---|
 | The sync operation is **Failed** | *?* | *?* |
-| The Deployment did **not** update | *?* | *?* |
+| The `ConfigMap`, `Service`, and `Deployment` rows have an **empty MESSAGE** (nothing was applied to them) | *?* | *?* |
 
-![storefront-dev failed PreSync Job; later waves not applied (v3.5.2)](../../assets/screenshots/day-1/lab-03-09-presync-hook-failed.png)
+3. Start the sync explicitly (UI **Sync**, or the CLI):
+   ```bash
+   argocd app sync storefront-dev
+   ```
+   **Expected** (trimmed; it finishes in about 6 seconds):
+   ```text
+   Operation:          Sync
+   Sync Revision:      405e86c4066bd8bfa10de7e3065dffce009c33a5
+   Phase:              Failed
+   ...
+   Message:            one or more synchronization tasks completed unsuccessfully
 
-*Figure SS-L3-09 — After Part B: the PreSync migration Job **failed**, the sync **operation Failed**, and later Sync-phase resources were never applied.*
+   GROUP  KIND        NAMESPACE       NAME                  STATUS  HEALTH   HOOK     MESSAGE
+   batch  Job         storefront-dev  storefront-migration  Failed  Synced   PreSync  Job has reached the specified backoff limit
+          ConfigMap   storefront-dev  storefront            Synced
+          Service     storefront-dev  storefront            Synced  Healthy
+   apps   Deployment  storefront-dev  storefront            Synced  Healthy
+   {"level":"fatal","msg":"Operation has completed with phase: Failed",...}
+   ```
+   The last line is the CLI reporting the failed operation and exiting with an error; nothing crashed. To read the Job's own words: `kubectl --context k3d-workload -n storefront-dev logs job/storefront-migration`.
 
-**🔍 Notice:** the PreSync Job node is red; the **sync operation** is **Failed** inside the sync result (not an app-level condition); the `Deployment`/`Service` did **not** change — the gate never opened.
+![storefront-dev after the explicit sync: Sync failed, PreSync Job red, app still Synced and Healthy (v3.5.2)](../../assets/screenshots/day-1/lab-03-09-presync-hook-failed.png)
 
-<!-- CAPTURE-SPEC: SS-L3-09 — Failed sync with PreSync hook. State: after Part B shouldFail=true. Highlight: failed PreSync Job; operation Failed; later resources not applied. Argo CD v3.5.2. -->
+*Figure SS-L3-09 — After Part B's explicit sync: **LAST SYNC** reads **Sync failed**, the PreSync `storefront-migration` Job is red, and the app is still `Synced` / `Healthy`. This sync never touched the `ConfigMap`, `Service`, or `Deployment`.*
 
-**Recover:** set `migration.shouldFail` back to `false` **through Git** and push. Because a failed sync of the *same* commit is not retried automatically, your *new* commit is what lets Argo CD sync cleanly. Watch the PreSync Job succeed and later waves apply in order.
+**🔍 Notice:** the PreSync Job node is red and **LAST SYNC** says **Sync failed** — the evidence is inside the **sync result**. There is no **APP CONDITIONS** error, unlike Part A. The app stays `Synced` / `Healthy`: nothing Argo CD compares has changed, and a failed hook does not count toward the app's health. The Sync-phase rows have no message because this sync never reached them — the gate never opened.
 
-> **✅ Part B in one line:** the chart rendered fine, but the **first step of the sync** (the PreSync Job) failed, so the steps after it never ran. The evidence is in the **sync result**, the owner is the **application-controller** running the sync, and the fix lived in **`storefront-gitops`**.
+<!-- CAPTURE-SPEC: SS-L3-09 — storefront-dev tree after the explicit sync with shouldFail=true. Highlight: red PreSync Job; LAST SYNC Sync failed; app Synced/Healthy. Argo CD v3.5.2. -->
+
+**Recover:** set `migration.shouldFail` back to `false` **through Git** (edit the line, or `git revert` your breaking commit), commit, and push. The fix is also a hook-only change, so the app stays `Synced` and nothing runs on its own. Run `argocd app sync storefront-dev` again, and watch the PreSync Job succeed and the waves apply in order.
+
+> **In a real pipeline, the migration usually ships *with* a visible change** (a new image or setting). Then the app does go `OutOfSync`, and automated sync starts the failing sync for you. Three things surprise people at that point, and optional **Stretch 2** lets you see them: Argo CD **retries** a failed automated sync (up to 5 times by default); the retries keep using the **same commit**, even after you push a fix; and when it stops, the app shows a `SyncError` condition. `argocd app terminate-op storefront-dev` stops a sync that is still retrying.
+
+> **✅ Part B in one line:** the chart rendered fine, but the **first step of the sync** (the PreSync Job) failed, so the steps after it never ran. The evidence is in the **sync result**, the owner is the **application-controller** running the sync, and the fix lived in **`storefront-gitops`**. A change that touches only a hook needs an explicit sync, because hooks are not compared.
 
 **Then justify your choice — revert vs roll forward.** For each part, write one line: did you **revert** (restore last known-good because you were not yet sure) or **roll forward** (commit a fix because you understood it)? Rule: revert when you do not know why; roll forward when you do — and `git revert` leaves a reviewable receipt either way.
 
-![Both apps Synced/Healthy after recovery (v3.5.2)](../../assets/screenshots/day-1/lab-03-10-recovered.png)
+![Applications list after recovery: storefront-dev and storefront-staging Synced and Healthy (v3.5.2)](../../assets/screenshots/day-1/lab-03-10-recovered.png)
 
-*Figure SS-L3-10 — After E5: both apps back to `Synced` / `Healthy` at your latest commit; recovery commits visible in each repo's `git log`.*
+*Figure SS-L3-10 — After E5: the Applications list shows `storefront-dev` and `storefront-staging` back to `Synced` / `Healthy`, beside `hello-reconcile` from Lab 1. Your recovery commits are in each repo's `git log`, not on this screen.*
 
-<!-- CAPTURE-SPEC: SS-L3-10 — Applications list, recovered. State: after E5 recovery. Highlight: both apps Synced+Healthy. Argo CD v3.5.2. -->
+<!-- CAPTURE-SPEC: SS-L3-10 — Applications list, recovered. State: after E5 recovery. Highlight: dev and staging tiles Synced+Healthy. Argo CD v3.5.2. -->
 
 **Success criterion:**
 - After Part A, `storefront-staging` has **no** `ComparisonError` and is `Synced`/`Healthy`.
-- After Part B, `storefront-dev`'s PreSync Job **succeeds**, the app is `Synced`/`Healthy`, and `argocd app history storefront-dev` shows the recovery as a new revision.
+- After Part B, your explicit sync of the fix **succeeds** (the PreSync Job shows `Succeeded`), the app is `Synced`/`Healthy`, and `argocd app history storefront-dev` lists your fix commit as a new entry. (History records successful syncs only, so the failed attempt is not listed.)
 - You can name, for each part, **which component** owned the failure and **which repo** held the fix.
 
 **Hints:**
 - *Hint 1:* Part A — read the Application's **conditions**, not the sync result. A rendering failure never reaches the sync result.
 - *Hint 2:* Part B — the failing thing is a Job, but the *cause* is a PreSync gate blocking everything after it. Ask "what did this Job stop from running?"
-- *Hint 3:* If Part B stays stuck after you fix the value, confirm you **pushed** a *new* commit — Argo CD will not re-attempt the identical failed commit.
+- *Hint 3:* Part B — if nothing happens after you push, that is expected: a hook-only change leaves the app `Synced`, so start the sync yourself. If the CLI answers `another operation is already in progress`, an automated sync is still running or retrying (see Troubleshooting).
 
 ---
 
@@ -87,13 +127,16 @@ The chart ships a **PreSync** "database migration" Job. When `migration.shouldFa
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `kubectl` shows "nothing there" | Wrong `--context` | `--context k3d-workload` for workload resources, `k3d-mgmt` for Argo CD's objects — the top self-inflicted failure |
-| New `storefront-staging` rejected: *"destination … not permitted in project 'storefront'"* | AppProject still permits only `storefront-dev` | Add the `storefront-staging` destination to `projects/storefront.yaml`, commit, re-apply |
+| `storefront-staging` shows `Unknown` / `Unknown` with *`InvalidSpecError … do not match any of the allowed destinations in project 'storefront'`* (even though `kubectl apply` said `created`) | AppProject still permits only `storefront-dev` | Add the `storefront-staging` destination to `projects/storefront.yaml`, commit, re-apply the project |
 | **`ComparisonError`** condition, no sync result | A **rendering** failure (missing `valueFiles`/required value). Owner: repo-server | Fix the reference in its repo, refresh; nothing was applied |
-| **Failed sync operation** with a red hook | A **sync/ordering** failure. Owner: application-controller | Read the sync result + hook logs; fix desired state in Git, push a **new** commit |
+| **Failed sync operation** with a red hook | A **sync/ordering** failure. Owner: application-controller | Read the sync result and the hook's logs; fix desired state in Git, push, then sync (a hook-only fix does not start auto-sync) |
 | Self-heal "won't stay" after a manual edit | Working as configured | The durable change is a commit; during an incident disable auto-sync on that app, stabilize, then commit |
-| Drift/fix "takes a while" (~60 s) | Differences discovered on the comparison loop | **Refresh** forces an immediate comparison; **Hard Refresh** also re-renders |
-| After promoting `6.16.0`, Deployment `Degraded` / `ImagePullBackOff` | Offline classroom, tag not pre-loaded | `git revert` the promotion to `6.15.0`, push, sync (a real roll-forward-failed → revert moment) |
-| Part B stays failed after you fix the value | Argo CD does not re-attempt the identical failed commit | Ensure your fix is a **new** pushed commit; `git revert` produces exactly that |
+| A new **commit** takes up to a minute to show | Argo CD checks Git every 60 seconds | **Refresh** makes it check Git now; **Hard Refresh** also re-renders the manifests |
+| A **hand edit** shows `OutOfSync` within seconds | Argo CD watches the live objects it manages | Nothing to fix; that is how drift is noticed. With self-heal on, it is reverted just as fast |
+| After promoting, a new Pod is in `ImagePullBackOff` and the Deployment turns `Degraded` | The tag is mistyped, or that image was never pre-loaded (the classroom pre-loads `6.14.1` and `6.15.0`) | `git revert` the promotion, push, sync (the old Pod keeps serving meanwhile); then fix the tag |
+| Part B: you pushed, and nothing happened | A change to a hook alone does not make the app `OutOfSync`, so automated sync never starts | Run `argocd app sync storefront-dev` |
+| The operation shows `Running` with `Retrying attempt #N`, your pushed fix is ignored, and a manual sync says `another operation is already in progress` | An **automated** sync failed and is retrying the **same** commit (5 retries by default) | `argocd app terminate-op storefront-dev`; automated sync then picks up your newest commit |
+| A `SyncError` condition: `Failed last sync attempt to [<commit>] …` | An automated sync failed or was terminated; Argo CD will not try that exact commit again | Push a fix (a new commit); automated sync runs it |
 
 ---
 
@@ -101,13 +144,27 @@ The chart ships a **PreSync** "database migration" Job. When `migration.shouldFa
 
 You have met the Day 1 outcome when **both** environments are healthy at your latest commit **and** you can say where you would look first for the four failure classes.
 
-**▶ Do this now:**
+**▶ Do this now** (from your home directory):
 
 ```bash
-argocd app list -o wide
+argocd app list
+kubectl --context k3d-mgmt -n argocd get applications storefront-dev storefront-staging \
+  -o custom-columns='NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,REVISION:.status.sync.revision'
+git -C storefront-gitops rev-parse HEAD
 ```
 
-Cross-check: (1) both `storefront-dev` and `storefront-staging` are `Synced`/`Healthy`; (2) each app's revision equals `git -C storefront-gitops rev-parse HEAD`; (3) each serves (`curl` returns `storefront DEV` / `storefront STAGING`).
+**Expected shape** of the last two commands (your commit IDs will differ):
+
+```text
+NAME                 SYNC     HEALTH    REVISION
+storefront-dev       Synced   Healthy   a4963fa5a7232fae2d37bd6a93213376ff57ff91
+storefront-staging   Synced   Healthy   a4963fa5a7232fae2d37bd6a93213376ff57ff91
+a4963fa5a7232fae2d37bd6a93213376ff57ff91
+```
+
+`argocd app list` has no revision column: its `TARGET` column shows the branch (`main`). That is why the second command reads each Application's `status.sync.revision`, the commit Argo CD compared the app against.
+
+Cross-check: (1) both `storefront-dev` and `storefront-staging` are `Synced`/`Healthy`; (2) both REVISION values equal the `git rev-parse HEAD` line; (3) each serves (`curl` returns `storefront DEV` / `storefront STAGING`).
 
 **Then write a three-line note** for each failure class — *(a)* first place you'd look, *(b)* which component owns that layer, *(c)* which repo/object holds the fix:
 
@@ -131,11 +188,12 @@ If you can produce those four notes without looking anything up, you have the di
 - **Two kinds of red, two places to look.** A **rendering** failure shows as an Application **condition** (`ComparisonError`) and nothing is applied. An **ordering** failure shows in the **sync result**, and later steps never run.
 - **Find the owner before you fix.** Rendering belongs to the repo-server; applying belongs to the application-controller. The fix lives in whichever repo holds the broken input.
 - **Recover through Git.** Revert when you do not yet know why; roll forward when you do. Both leave a record.
+- **A change to a hook alone does not make an app `OutOfSync`,** so automated sync will not run it. Start that sync yourself.
 
 **From the whole of Lab 3:**
 
 - **`helm list` is empty and that is correct.** Argo CD uses Helm to produce YAML and applies it itself — there is no release to roll back, only a commit to revert.
-- **Drift is discovered on the next comparison, not the instant it happens.** **Refresh** makes Argo CD look now.
+- **Argo CD notices a hand edit within seconds, and a new commit within a minute.** It watches the live objects it manages, and it checks Git every 60 seconds here. **Refresh** makes it check Git now.
 - **Sync and health are independent.** Scaling made the app `OutOfSync` but still `Healthy`. Which status moves tells you "changed" from "broken".
 - **Self-heal outlives your hand edit.** Git wins because someone chose that Git should win.
 - **Promotion is a one-line commit** that moves a version number to the next environment.
@@ -145,9 +203,21 @@ If you can produce those four notes without looking anything up, you have the di
 
 ## Optional stretch challenges (outside the timebox)
 
-1. **Rollback is blocked under auto-sync — see it, then explain it.** With auto-sync on for `storefront-dev`, open **History and Rollback** and try to roll back. Predict first. The action is **blocked** — Argo CD would re-sync forward and undo it. Write two sentences: *why* is this refusal correct, and what is the GitOps-consistent way to "roll back"? (A rollback is a cluster action; desired state still says "go forward." The consistent move is `git revert` in the source repo.)
+1. **Rollback under auto-sync — predict, try it, explain it.** `storefront-dev` has auto-sync on. Predict first: will Argo CD let you roll it back to an older entry? Then try it, either in the UI (**History and Rollback** → the **⋮** menu on an older entry → **Rollback**) or with the CLI, using an ID from `argocd app history storefront-dev`:
+   ```bash
+   argocd app rollback storefront-dev <ID>
+   ```
+   Write two sentences: *why* is Argo CD's answer correct, and what is the GitOps-consistent way to "roll back"?
 
-2. **Add retry with backoff and watch it.** Give `storefront-dev` a `syncPolicy.retry` block (small `limit`, a `backoff`). Re-introduce the Part B failure and watch Argo CD **re-attempt the same failing sync** on the schedule — and note the scope: retry re-runs a sync that *failed while executing*; it does **not** invent a new sync when nothing in Git changed. Remove the retry block when done.
+2. **Watch automated retries — and what they will not do.** Part B used a manual sync, which never retries. Automated syncs do. Predict first: when an automated sync fails, how many more times will Argo CD try, and with which commit?
+   1. Add a `retry` block under `spec.syncPolicy` in `platform-config/applications/storefront-dev.yaml` (`limit: 2`, plus a `backoff` with `duration: 5s`, `factor: 2`, `maxDuration: 1m`). Commit it and apply it.
+   2. Re-introduce the Part B failure **together with a visible change**, such as a new `ui.message`, so the app goes `OutOfSync` and automated sync starts on its own. Push, then refresh.
+   3. Every few seconds, run `argocd app get storefront-dev --show-operation` and read the `Phase` and `Message` lines. When it stops, run `argocd app get storefront-dev` again and look for a condition.
+   4. Push the fix (keep the new message). Do you need to do anything else?
+   5. Now `git revert` the `retry` commit and apply the file again, so automated sync goes back to its default (up to 5 retries). Break it the same way again, and push the fix *while* the operation still says `Retrying`: which commit do the retries use? What does `argocd app terminate-op storefront-dev` change?
+   6. Clean up: make sure the fix is pushed and synced, and restore the original `ui.message`.
+
+   Note the scope as you watch: a retry re-runs a sync that *failed while executing*; it does **not** start a new sync when nothing in Git changed.
 
 > **Not included on purpose:** the "app that can never reach `Synced`" puzzle (a chart rendering a fresh random value each comparison) — the storefront chart is deliberately deterministic. The principle still holds: **a non-deterministic desired state can never be reconciled**, and the fix is in the chart, not Argo CD.
 

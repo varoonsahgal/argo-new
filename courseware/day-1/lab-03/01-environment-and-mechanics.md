@@ -43,6 +43,16 @@ PASS CP-lab-03 is in the expected state.
 
 If any row says **FAIL**, run `reset-lab.sh CP-lab-03 --local` (no `--verify-only`) to restore. A full reset discards uncommitted lab work.
 
+**▶ Do this now — confirm both clones are in your home directory.** Lab 2 cloned `platform-config`; Session 4's optional Try It cloned `storefront-gitops`. If `ls` reports either one missing, clone it:
+
+```bash
+cd ~
+ls -d platform-config storefront-gitops
+git clone http://lab-gitea:3000/course/storefront-gitops.git   # only if storefront-gitops is missing
+```
+
+Commands in this lab that name `platform-config/…` run from your home directory (`~`). Commands that work inside one repository (`git`, `helm template`) run from that repository's folder.
+
 **▶ Do this now — confirm the starting picture in the UI.** `storefront-dev` should be **`OutOfSync`** / **`Missing`** — the correct starting state, meaning "Argo CD can render and compare, and nothing is deployed yet."
 
 ![Applications list showing storefront-dev OutOfSync and Missing at the start of Lab 3 (v3.5.2)](../../assets/screenshots/day-1/lab-03-01-env-check.png)

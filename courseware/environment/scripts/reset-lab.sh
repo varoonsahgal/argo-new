@@ -142,6 +142,14 @@ reset_apply_argocd() {
 }
 
 # Substitute <PLACEHOLDER> pairs in a template and apply to the mgmt cluster.
+#
+# Server-side apply, never client-side (E-3). A client-side `kubectl apply`
+# stores a full copy of what it applied, password or token included, in the
+# kubectl.kubernetes.io/last-applied-configuration annotation, where anything
+# that can read Secret metadata (an ApplicationSet cluster generator, an error
+# message) can leak it. Server-side apply never creates that annotation, but it
+# keeps, and even rewrites, one that is already there (for example on a Secret a
+# participant applied client-side), so strip any stale copy first.
 render_and_apply_secret() {
   local template="$1"; shift
   [ -f "${template}" ] || die "secret template missing: ${template}"
@@ -150,7 +158,12 @@ render_and_apply_secret() {
     content="${content//$1/$2}"
     shift 2
   done
-  printf '%s\n' "${content}" | kmgmt apply -f - >/dev/null
+  local name ns
+  name="$(yq '.metadata.name' "${template}")"
+  ns="$(yq '.metadata.namespace // "argocd"' "${template}")"
+  kmgmt -n "${ns}" annotate secret "${name}" \
+    kubectl.kubernetes.io/last-applied-configuration- >/dev/null 2>&1 || true
+  printf '%s\n' "${content}" | kmgmt apply --server-side --force-conflicts -f - >/dev/null
 }
 
 # Ensure the workload SA + token exist (idempotent); wait for the token.
@@ -247,14 +260,19 @@ refresh_participant_clones() {
   fi
   for dir in "${COURSE_USER_HOME}"/*/; do
     [ -d "${dir}.git" ] || continue
+    # Only clones of the course's own repositories. COURSE_USER_HOME can be a
+    # real home directory (argo-lab-env.sh sets it to $HOME), so an unrelated
+    # project must never be hard-reset just because it also talks to port 3000.
+    name="$(basename "${dir}")"
+    in_list "${name}" "${COURSE_REPOS}" || continue
     # Match both spellings: the insteadOf rule above rewrites the lab-gitea host
     # to localhost, and `git remote get-url` prints the rewritten form.
     url="$(git -C "${dir}" remote get-url origin 2>/dev/null)" || continue
     case "${url}" in
-      *"${GITEA_CONTAINER}:${GITEA_HOST_PORT}/"*|*"localhost:${GITEA_HOST_PORT}/"*) ;;
+      *"${GITEA_CONTAINER}:${GITEA_HOST_PORT}/${GITEA_ORG}/${name}"*) ;;
+      *"localhost:${GITEA_HOST_PORT}/${GITEA_ORG}/${name}"*) ;;
       *) continue ;;
     esac
-    name="$(basename "${dir}")"
     if git -C "${dir}" fetch --quiet origin 2>/dev/null \
        && git -C "${dir}" reset --hard --quiet origin/main 2>/dev/null \
        && git -C "${dir}" clean -qfd 2>/dev/null; then
@@ -402,6 +420,15 @@ step6_workload_rbac() {
     kwork delete -f "${rbac}" --ignore-not-found >/dev/null 2>&1 || true
     ok "workload RBAC removed (baseline: not registered)"
   fi
+  # `argocd cluster add` (Lab 2 stretch A) creates these on the workload cluster
+  # BEFORE it fails: a ServiceAccount in kube-system, a ClusterRole granting every
+  # verb on every resource, its binding, and a long-lived token. No checkpoint
+  # uses them, and they silently undo least privilege, so always remove them.
+  kwork delete clusterrolebinding argocd-manager-role-binding --ignore-not-found >/dev/null 2>&1 || true
+  kwork delete clusterrole argocd-manager-role --ignore-not-found >/dev/null 2>&1 || true
+  kwork -n kube-system delete secret argocd-manager-long-lived-token --ignore-not-found >/dev/null 2>&1 || true
+  kwork -n kube-system delete serviceaccount argocd-manager --ignore-not-found >/dev/null 2>&1 || true
+  ok "no cluster-wide argocd-manager leftovers (from argocd cluster add) on workload"
 }
 
 step7_workload_ns() {

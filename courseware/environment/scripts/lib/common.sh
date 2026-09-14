@@ -31,6 +31,11 @@ export ARGOCD_CLI_VERSION="v3.5.2"
 export YQ_VERSION="v4.48.1"
 export GITEA_IMAGE="gitea/gitea:1.27.3-rootless"
 export PODINFO_IMAGE="stefanprodan/podinfo:6.15.0"
+# The previous podinfo release. storefront dev/staging start on it at cp-baseline
+# through cp-lab-03, so Lab 3 Exercise 2 can promote 6.14.1 -> 6.15.0 with both
+# images already on the workload cluster (no registry pull in class). cp-lab-04
+# moves dev/staging back to PODINFO_IMAGE. Verified on Docker Hub 2026-09-13.
+export PODINFO_PREV_IMAGE="stefanprodan/podinfo:6.14.1"
 # P-16 pins resolved by environment-engineer:
 export BUSYBOX_IMAGE="busybox:1.37.0"
 export REDIS_IMAGE_REPO="public.ecr.aws/docker/library/redis"

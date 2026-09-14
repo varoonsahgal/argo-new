@@ -450,7 +450,7 @@ Four ideas must be introduced early and then *re-earned* in a new context in eve
 - **Source / verification:** ⚠️ **Verified via search summaries only** (2026-09-10): `argo-cd.readthedocs.io/en/latest/operator-manual/upgrading/3.4-3.5/` ("Helm was upgraded to 4.2.1"; "The only Helm binary used to render charts in Argo CD (starting with version 3.5) is v4"; Helm 4 OCI now requires explicit `--plain-http` for non-TLS registries) and `argoproj/argo-cd` issues **#29068 / #29059** ("Document Helm rendering behavior changes when upgrading to Argo CD 3.5"). **Route to `technical-source-check`:** confirm the exact bundled Helm patch version at `v3.5.2` and the precise coalescing wording. Note the upgrade page was read from `/latest/`.
 
 #### I-S4-03 · Drift is discovered, not detected `STICKY`
-- **Insight:** Argo CD does not watch for `kubectl edit` events and react. It **compares** rendered state against live state on a schedule (and on refresh, and on relevant change events). "Drift" is simply the name for a comparison that came back different. That is why drift appears on the next comparison rather than the instant someone types.
+- **Insight:** Argo CD does not *block* a `kubectl edit`; the edit succeeds. Argo CD then **compares** rendered state against live state, and "drift" is simply the name for a comparison that came back different. The comparison is triggered by a watch on the resources it manages (a hand edit shows `OutOfSync` within a second or two — verified in the 2026-09-13 Lab 3 run), by the Git polling timer (60 s here) for new commits, and by Refresh. There is always a window in which the cluster was wrong; for a hand edit it is short.
 - **Why it is useful:** It explains the timing participants will observe in Lab 3, and it prevents the belief that Argo CD is an admission controller blocking changes — a belief that leads directly to wrong incident decisions.
 - **Best delivery moment:** Opening the drift/self-heal section, before either term is defined.
 - **Visual / activity:** A timeline: edit at t=0, comparison at t=n, correction at t=n+ε. Ask participants to mark on the timeline "when was the cluster wrong?" — the honest answer is the whole interval.
@@ -574,7 +574,7 @@ Four ideas must be introduced early and then *re-earned* in a new context in eve
 
 ### Key takeaways — Lab 3
 
-> **"Drift is not detected, it is discovered — on the next comparison. There is always a window in which the cluster was wrong."**
+> **"Drift is not blocked, it is discovered — seconds after a hand edit, within a Git check after a commit. There is always a window in which the cluster was wrong."**
 >
 > **"Self-heal does not block your edit. It outlives it."**
 >

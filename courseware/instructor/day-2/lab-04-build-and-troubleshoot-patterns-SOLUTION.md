@@ -48,7 +48,7 @@ source ~/argo-lab-env.sh
 reset-lab.sh CP-lab-04 --verify-only --local
 ```
 
-**Expect** (verified — note the two "team-a absent" rows the guide's sample omits):
+**Expect** (re-verified 2026-09-13 — 14 rows, identical to the participant guide's Module 1 block):
 
 ```text
 ==> Verification for CP-lab-04
@@ -62,6 +62,7 @@ reset-lab.sh CP-lab-04 --verify-only --local
   PASS  Secret repo-storefront-gitops present
   PASS  Secret cluster-workload present
   PASS  Secret course-repo-creds present
+  PASS  Repository and cluster Secrets are exactly: in-cluster, repo-storefront-gitops, cluster-workload, course-repo-creds
   PASS  workload namespace storefront-prod present
   PASS  workload SA argocd-manager present
   PASS  workload RoleBinding argocd-deployer (storefront-prod) present
@@ -274,16 +275,16 @@ git checkout -- applicationsets/storefront.yaml
 argocd appset generate applicationsets/storefront.yaml -o wide | awk '{print $1}'
 ```
 
-**Expect** (verified):
+**Expect** (verified 2026-09-13 — the CLI sorts by name, so the three `-in-cluster` rows print **first**):
 
 ```text
 NAME                                  CLUSTER                             NAMESPACE           ...  TARGET
-argocd/storefront-dev-workload        https://k3d-workload-server-0:6443  storefront-dev      ...  main
-argocd/storefront-prod-workload       https://k3d-workload-server-0:6443  storefront-prod     ...  storefront-1.0.0
-argocd/storefront-staging-workload    https://k3d-workload-server-0:6443  storefront-staging  ...  main
 argocd/storefront-dev-in-cluster      https://kubernetes.default.svc      storefront-dev      ...  main
 argocd/storefront-prod-in-cluster     https://kubernetes.default.svc      storefront-prod     ...  storefront-1.0.0
 argocd/storefront-staging-in-cluster  https://kubernetes.default.svc      storefront-staging  ...  main
+argocd/storefront-dev-workload        https://k3d-workload-server-0:6443  storefront-dev      ...  main
+argocd/storefront-prod-workload       https://k3d-workload-server-0:6443  storefront-prod     ...  storefront-1.0.0
+argocd/storefront-staging-workload    https://k3d-workload-server-0:6443  storefront-staging  ...  main
 
 NAME
 argocd/storefront-dev-workload
@@ -321,6 +322,21 @@ kubectl --context k3d-mgmt -n argocd get applicationset storefront -o jsonpath='
 
 **Expect** (verified): `{"applicationsSync":"create-update","preserveResourcesOnDeletion":true}`
 
+**Also verified — worth showing.** Within seconds of that apply, the controller removed `resources-finalizer.argocd.argoproj.io` from all three generated Applications. That is *how* `preserveResourcesOnDeletion` protects the workload:
+
+```bash
+kubectl --context k3d-mgmt -n argocd get applications -o custom-columns='NAME:.metadata.name,FINALIZERS:.metadata.finalizers'
+```
+
+```text
+NAME                          FINALIZERS
+storefront-dev-workload       <none>
+storefront-prod-workload      <none>
+storefront-staging-workload   <none>
+```
+
+Before the apply, every row read `[resources-finalizer.argocd.argoproj.io]`.
+
 ### Remove the prod input
 
 **Do:**
@@ -356,6 +372,8 @@ ParametersGenerated=True: Successfully generated parameters for all Applications
 ResourcesUpToDate=True: All applications have been generated successfully
 ```
 
+**Timing (re-verified 2026-09-13).** The preview changes the instant the push lands; the controller does not. Here it acted on the retired input 2 minutes after the push (`generated 2 applications`, then `requeueAfter=3m0s`). The app list, owner, and conditions above were re-checked **after** that pass: prod was still present, still owned by `ApplicationSet/storefront`, still listed in the ApplicationSet's `status.resources`, and its Deployment was `2/2`. Tell the room to wait 3 minutes before judging — before that pass, prod is listed with or without the policy.
+
 **Answer key — prediction:** under `create-update`, `storefront-prod-workload` **stays**. The factory stopped generating it but is not allowed to delete it.
 
 **Say:** "Look at the conditions. All green. 'All applications have been generated successfully.' Does anything on this screen tell you there's an orphan?"
@@ -385,6 +403,7 @@ git commit -m "restore prod generator input" && git push
 
 - `syncPolicy` placed under `template.spec` → no effect on deletion, and prod disappears. "Which object gets deleted — the Application, or the workload? Then which object's policy matters?"
 - Applied the policy **after** removing the input → the Application is already gone. There's no undo for that ordering; restore the input and it regenerates.
+- **Verified variant (2026-09-13):** with prod's input already retired, applying the ApplicationSet **without** `spec.syncPolicy` deleted `storefront-prod-workload` within 5 seconds. A change to the ApplicationSet itself triggers an immediate pass, and the controller logged `Deleted application`. The prod Deployment kept running (still present after 4 minutes), because the earlier protected apply had already removed the finalizer. On a first run, where the finalizer is still present, expect the workload to go too (inferred from the finalizer, not re-run). Restoring the input and re-applying the protected file brought prod back.
 
 ---
 

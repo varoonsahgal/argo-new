@@ -365,11 +365,13 @@ shots:
     app: argocd
     auth: admin
     route: /settings/clusters
-    state: "Settings, Clusters after registration"
+    # Capture right after E2, BEFORE E4: no Application uses the workload cluster
+    # yet, so v3.5.2 shows it as Unknown ("not being monitored"), not Successful.
+    state: "Settings, Clusters after registration, before any Application uses it"
     produced_by: "lab-02 E2"
     fidelity: full
     highlight:
-      intent: "workload row Successful, server URL"
+      intent: "workload row at the in-network server URL, status Unknown"
       selector: ".argo-table-list__row"
 
   - id: SS-L2-04
@@ -378,12 +380,18 @@ shots:
     app: argocd
     auth: admin
     route: /settings/clusters
-    state: "Cluster detail for workload"
+    state: "Cluster detail page for workload (after E2, before E4)"
     produced_by: "lab-02 E2"
-    fidelity: panel
+    # Clicking the row opens /settings/clusters/<server URL>: GENERAL (namespaces,
+    # labels) and CONNECTION STATE boxes.
+    actions:
+      - click: '.argo-table-list__row:has-text("k3d-workload-server-0")'
+      - wait_for: ".white-box"
+      - wait_ms: 1500
+    fidelity: full
     highlight:
-      intent: "namespaces scoping, labels"
-      selector: ".cluster-details"
+      intent: "namespaces scoping, labels, connection state"
+      selector: ".white-box"
 
   - id: SS-L2-05
     guide: lab-02
@@ -393,6 +401,11 @@ shots:
     route: /settings/projects/storefront
     state: "Project storefront detail"
     produced_by: "lab-02 E4"
+    # The summary tab scrolls; at 900 px it cuts off above DESTINATIONS. 1600 px
+    # shows source repos, destinations, and the empty cluster resource allow list.
+    viewport:
+      width: 1440
+      height: 1600
     fidelity: full
     highlight:
       intent: "source repos, destinations, empty cluster-resource allow list"
@@ -432,10 +445,15 @@ shots:
     route: /applications/storefront-dev
     state: "Diff view"
     produced_by: "lab-02 E4"
-    fidelity: panel
+    # Same verified v3.5.2 selectors as SS-L1-06: the toolbar button is "Diff".
+    actions:
+      - click: 'button:has(span.show-for-large:text-is("Diff"))'
+      - wait_for: ".sliding-panel--opened .application-resources-diff"
+      - wait_ms: 1500
+    fidelity: full
     highlight:
       intent: "desired-only resources"
-      selector: ".application-diff"
+      selector: ".sliding-panel--opened .application-resources-diff"
 
   - id: SS-L2-09
     guide: lab-02
@@ -443,12 +461,21 @@ shots:
     app: argocd
     auth: admin
     route: /settings/repos
-    state: "Settings, Repositories (troubleshooting) — record 1 applied"
+    state: "Settings, Repositories (troubleshooting) — record 1 rendered and applied"
     produced_by: "lab-02 E5"
+    # The list shows only "Failed"; the message is in the row's panel
+    # (Connection State Details). Click Refresh list first: argocd-server caches
+    # connection status for up to 1 h, so a plain page load can show an old result.
+    actions:
+      - click: 'button:has-text("Refresh list")'
+      - wait_ms: 3000
+      - click: '.argo-table-list__row:has-text("storefront-typo")'
+      - wait_for: ".sliding-panel--opened"
+      - wait_ms: 1500
     fidelity: full
     highlight:
-      intent: "Failed status and message"
-      selector: ".argo-table-list__row"
+      intent: "Failed repository and its Connection State Details message"
+      selector: ".sliding-panel--opened .white-box"
 
   - id: SS-L2-10
     guide: lab-02
@@ -456,11 +483,13 @@ shots:
     app: argocd
     auth: admin
     route: /settings/clusters
-    state: "Settings, Clusters (troubleshooting) — record 2 applied"
+    # No Application uses the loopback cluster, so v3.5.2 never tests it: the row
+    # reads Unknown ("not being monitored"), not Failed. Capture >= 1 min after apply.
+    state: "Settings, Clusters (troubleshooting) — record 2 applied, about a minute later"
     produced_by: "lab-02 E5"
     fidelity: full
     highlight:
-      intent: "Failed connection and message"
+      intent: "workload-loopback row Unknown next to workload Successful"
       selector: ".argo-table-list__row"
 
   # --- Guide 04 -------------------------------------------------------------
@@ -522,13 +551,16 @@ shots:
     filename: day-1/lab-03-01-env-check.png
     app: argocd
     auth: admin
-    route: /applications/storefront-dev
-    state: "storefront-dev OutOfSync/Missing — environment check"
+    # The caption describes the Applications LIST (hello-reconcile tile beside
+    # storefront-dev, no storefront-staging tile), so capture the list, not the
+    # storefront-dev page.
+    route: /applications
+    state: "Applications list at CP-lab-03, before E1: storefront-dev OutOfSync/Missing, hello-reconcile Synced/Healthy, no storefront-staging"
     produced_by: CP-lab-03
     fidelity: full
     highlight:
-      intent: "status badges"
-      selector: ".application-status-panel"
+      intent: "storefront-dev OutOfSync/Missing beside hello-reconcile"
+      selector: ".applications-list .argo-table-list__row"
 
   - id: SS-L3-02
     guide: lab-03
@@ -548,13 +580,20 @@ shots:
     filename: day-1/lab-03-03-parameters-values-files.png
     app: argocd
     auth: admin
-    route: /applications/storefront-staging?view=parameters
-    state: "App details, parameters"
+    # Verified v3.5.2 deep link: Details panel, PARAMETERS tab. The old
+    # ?view=parameters route loaded "permission denied" (app did not exist yet).
+    route: "/applications/argocd/storefront-staging?resource=&node=argoproj.io%2FApplication%2Fargocd%2Fstorefront-staging%2F0&tab=parameters"
+    state: "storefront-staging Details -> PARAMETERS, after E2 (staging synced, 2 replicas)"
     produced_by: "lab-03 E2"
-    fidelity: panel
+    # Taller page so replicaCount (2) and ui.message are visible below image.tag.
+    viewport: { width: 1440, height: 1500 }
+    actions:
+      - wait_for: '.sliding-panel--opened .white-box:has-text("VALUES FILES")'
+      - wait_ms: 1500
+    fidelity: full
     highlight:
-      intent: "values-files list"
-      selector: ".application-parameters"
+      intent: "VALUES FILES ../../envs/staging/values.yaml; replicaCount 2"
+      selector: '.sliding-panel--opened .white-box:has-text("VALUES FILES")'
 
   - id: SS-L3-04
     guide: lab-03
@@ -575,51 +614,78 @@ shots:
     app: argocd
     auth: admin
     route: /applications/storefront-dev
-    state: "Diff view"
+    state: "Diff view (Diff button) after E3's kubectl scale --replicas=3, before E4's sync"
     produced_by: "lab-03 E3"
-    fidelity: panel
+    # Without the Diff click the shot is just the tree (identical to SS-L3-04).
+    # Same verified v3.5.2 selectors as SS-L1-06 / SS-L2-08. "Compact diff" is
+    # needed: the full diff opens on the metadata block and spec.replicas (line
+    # ~151) is far below the fold.
+    actions:
+      - click: 'button:has(span.show-for-large:text-is("Diff"))'
+      - wait_for: ".sliding-panel--opened .application-resources-diff"
+      - click: '.sliding-panel--opened label:has-text("Compact diff")'
+      - wait_ms: 2000
+    fidelity: full
     highlight:
-      intent: "spec.replicas live vs desired"
-      selector: ".application-diff"
+      intent: "spec.replicas live 3 vs desired 1"
+      selector: ".sliding-panel--opened .application-resources-diff"
 
   - id: SS-L3-06
     guide: lab-03
     filename: day-1/lab-03-06-auto-sync-enabled.png
     app: argocd
     auth: admin
-    route: /applications/storefront-dev?view=summary
-    state: "Sync policy section"
+    # Verified v3.5.2: Details panel, SUMMARY tab; the SYNC POLICY box is at the
+    # bottom. Scroll it to the middle so the annotations row is off-screen.
+    route: "/applications/argocd/storefront-dev?resource=&node=argoproj.io%2FApplication%2Fargocd%2Fstorefront-dev%2F0&tab=summary"
+    state: "storefront-dev Details -> SUMMARY -> SYNC POLICY, after E4's apply (before the Prune=false commit)"
     produced_by: "lab-03 E4"
-    fidelity: panel
+    actions:
+      - wait_for: '.sliding-panel--opened .white-box:has-text("SYNC POLICY")'
+      - scroll: '.sliding-panel--opened .white-box:has-text("SYNC POLICY")'
+      - wait_ms: 1000
+    fidelity: full
     highlight:
-      intent: "automated and self-heal on, prune off"
-      selector: ".application-summary"
+      intent: "ENABLE AUTO-SYNC and SELF HEAL checked, PRUNE RESOURCES unchecked"
+      selector: '.sliding-panel--opened .white-box:has-text("SYNC POLICY")'
 
   - id: SS-L3-07
     guide: lab-03
     filename: day-1/lab-03-07-self-heal-evidence.png
     app: argocd
     auth: admin
-    route: /applications/storefront-dev
-    state: "Sync/operation status after drift"
+    # Verified v3.5.2: the toolbar SYNC STATUS button opens this operation panel
+    # (deep link ?operation=true). Capture right after a self-heal revert and
+    # before the Prune=false commit, whose auto-sync would replace it.
+    route: "/applications/argocd/storefront-dev?resource=&operation=true"
+    state: "Sync Status panel after E4's second kubectl scale was reverted: INITIATED BY automated sync policy; RESULT lists only the Deployment"
     produced_by: "lab-03 E4"
-    fidelity: panel
+    actions:
+      - wait_for: '.sliding-panel--opened :text("INITIATED BY")'
+      - wait_ms: 1000
+    fidelity: full
     highlight:
-      intent: "initiated by the automated sync policy"
-      selector: ".application-operation-state"
+      intent: "INITIATED BY automated sync policy"
+      selector: '.sliding-panel--opened .white-box:has-text("INITIATED BY")'
 
   - id: SS-L3-08
     guide: lab-03
     filename: day-1/lab-03-08-comparison-error.png
     app: argocd
     auth: admin
-    route: /applications/storefront-staging
-    state: "storefront-staging with error condition"
+    # Verified v3.5.2: the header's APP CONDITIONS "1 Error" item opens this
+    # panel (deep link ?conditions=true). The old plain route was captured before
+    # storefront-staging existed and showed "permission denied".
+    route: "/applications/argocd/storefront-staging?resource=&conditions=true"
+    state: "storefront-staging APP CONDITIONS panel after E5 Part A (valueFiles -> values-DOESNOTEXIST.yaml, applied, refreshed)"
     produced_by: "lab-03 E5 part A"
+    actions:
+      - wait_for: ".sliding-panel--opened .application-conditions"
+      - wait_ms: 1500
     fidelity: full
     highlight:
-      intent: "Helm error text"
-      selector: ".application-conditions"
+      intent: "ComparisonError: ... values-DOESNOTEXIST.yaml: no such file or directory"
+      selector: ".sliding-panel--opened .application-conditions"
 
   - id: SS-L3-09
     guide: lab-03
@@ -627,11 +693,15 @@ shots:
     app: argocd
     auth: admin
     route: /applications/storefront-dev
-    state: "storefront-dev sync failed"
+    # Part B as rewritten 2026-09-13: commit only migration.shouldFail: true (app
+    # stays Synced; auto-sync does not start), then run `argocd app sync
+    # storefront-dev` explicitly. A manual sync has no retries, so it ends Failed
+    # in about 6 s. Capture after that and before the roll-forward commit.
+    state: "storefront-dev after E5 Part B's explicit sync: LAST SYNC 'Sync failed', PreSync Job red, app still Synced/Healthy"
     produced_by: "lab-03 E5 part B"
     fidelity: full
     highlight:
-      intent: "failed PreSync Job; operation Failed; later wave not applied"
+      intent: "failed PreSync Job (red); Sync-phase resources untouched by this operation"
       selector: ".application-resource-tree"
 
   - id: SS-L3-10
@@ -640,12 +710,12 @@ shots:
     app: argocd
     auth: admin
     route: /applications
-    state: "Applications list after recovery"
+    state: "Applications list after E5 recovery: storefront-dev (Auto) and storefront-staging (Manual) Synced/Healthy; storefront-dev's last sync Succeeded"
     produced_by: "after lab-03 E5"
     fidelity: full
     highlight:
       intent: "dev and staging Synced/Healthy"
-      selector: ".applications-list"
+      selector: ".applications-list .argo-table-list__row"
 
   # --- Guide 05 (ApplicationSet Alpha UI) -----------------------------------
   - id: SS-S5-01
@@ -709,26 +779,52 @@ shots:
     app: argocd
     auth: admin
     route: /settings/clusters
-    state: "Cluster detail workload"
+    state: "Cluster detail page for workload at CP-lab-04 (Settings -> Clusters -> workload row)"
     produced_by: CP-lab-04
-    fidelity: panel
+    # v3.5.2 has no .cluster-details element. Clicking the row opens
+    # /settings/clusters/<server URL> with GENERAL (labels) and CONNECTION STATE
+    # boxes (same verified actions as SS-L2-04).
+    actions:
+      - click: '.argo-table-list__row:has-text("k3d-workload-server-0")'
+      - wait_for: ".white-box"
+      - wait_ms: 1500
+    fidelity: full
     highlight:
       intent: "labels cluster-role, region"
-      selector: ".cluster-details"
+      selector: ".white-box"
 
   - id: SS-L4-03
     guide: lab-04
     filename: day-2/lab-04-03-appset-preview-diff.png
     app: argocd
     auth: admin
-    route: /applicationsets/storefront
-    state: "ApplicationSet Preview tab, DIFF sub-tab (edited selector, not saved)"
+    # Verified v3.5.2: AppSet Details panel, PREVIEW tab. EDIT turns the manifest
+    # into an editor titled "APPLICATIONSET MANIFEST (edits are not saved)";
+    # the actions clear the `cluster-role: workload` line (matchLabels becomes
+    # empty = every cluster), click the panel's PREVIEW button, and scroll to the
+    # LIVE APPS / DIFF / DESIRED APPS result. Nothing is saved to the cluster.
+    route: "/applicationsets/storefront?resource=&node=argoproj.io%2FApplicationSet%2Fargocd%2Fstorefront%2F0&tab=preview"
+    state: "E2 moment (storefront applied with the workload selector): Preview tab, selector line removed in the editor (not saved), PREVIEW clicked, DIFF sub-tab"
     produced_by: "lab-04 E2"
+    viewport: { width: 1440, height: 1400 }
+    actions:
+      - click: '.sliding-panel--opened button:text-is("Edit")'
+      - click: '.sliding-panel--opened .view-line:has-text("cluster-role: workload")'
+      - press: "End"
+      - press: "Shift+Home"
+      - press: "Backspace"
+      - click: '.sliding-panel--opened button:text-is("Preview")'
+      - wait_for: ".sliding-panel--opened .application-resources-diff"
+      - wait_ms: 2000
+      # Center the FIRST added Application's title, so the LIVE APPS / DIFF /
+      # DESIRED APPS sub-tabs and the Compact/Inline diff checkboxes stay in view.
+      - scroll: ".sliding-panel--opened .application-resources-diff__diff__title"
+      - wait_ms: 1000
     fidelity: full
     caption_note: "ApplicationSet UI is Alpha since v3.5.0"
     highlight:
-      intent: "proposed extra Applications"
-      selector: ".applicationset-preview"
+      intent: "the Applications a broadened selector would add (in-cluster)"
+      selector: ".sliding-panel--opened .application-resources-diff"
 
   - id: SS-L4-04
     guide: lab-04
@@ -736,13 +832,15 @@ shots:
     app: argocd
     auth: admin
     route: /applicationsets
-    state: "ApplicationSets list"
+    state: "ApplicationSets page after E1 apply: one storefront tile, Healthy, Applications: 3"
     produced_by: "lab-04 E1"
     fidelity: full
     caption_note: "ApplicationSet UI is Alpha since v3.5.0"
     highlight:
-      intent: "storefront row"
-      selector: ".applicationsets-list .argo-table-list__row"
+      # v3.5.2 renders ApplicationSets as tiles by default; there is no
+      # .applicationsets-list element.
+      intent: "storefront tile (Applications: 3)"
+      selector: ".applications-tiles__item"
 
   - id: SS-L4-05
     guide: lab-04
@@ -816,14 +914,21 @@ shots:
     filename: day-2/lab-04-10-appset-sync-policy.png
     app: argocd
     auth: admin
-    route: /applicationsets/storefront?tab=manifest
-    state: "ApplicationSet manifest tab"
+    # Verified v3.5.2 deep link: AppSet Details panel, MANIFEST tab (a read-only
+    # editor showing spec only). There is no .application-manifest element.
+    route: "/applicationsets/storefront?resource=&node=argoproj.io%2FApplicationSet%2Fargocd%2Fstorefront%2F0&tab=manifest"
+    state: "AppSet Details -> MANIFEST after E3's apply: spec.syncPolicy applicationsSync create-update, preserveResourcesOnDeletion true"
     produced_by: "lab-04 E3"
-    fidelity: panel
+    # Taller page so the syncPolicy lines at the end of the spec are in view.
+    viewport: { width: 1440, height: 1400 }
+    actions:
+      - wait_for: ".sliding-panel--opened .monaco-editor"
+      - wait_ms: 2000
+    fidelity: full
     caption_note: "ApplicationSet UI is Alpha since v3.5.0"
     highlight:
       intent: "applicationsSync: create-update, preserveResourcesOnDeletion"
-      selector: ".application-manifest"
+      selector: ".sliding-panel--opened .monaco-editor"
 
   # --- Guide 06 -------------------------------------------------------------
   - id: SS-S6-01

@@ -165,13 +165,25 @@ async function applyHighlight(page, selector, hl) {
 //   { click: "<css or playwright selector>" }   click the first match
 //   { fill: "<selector>", value: "<text>" }     type into an input
 //   { wait_for: "<selector>" }                  wait until visible (15 s)
+//   { scroll: "<selector>" }                    scroll the first match to the
+//                                               middle of its scroll container
+//                                               (no click, so nothing toggles)
 //   { wait_ms: <n> }                            fixed pause
+//   { press: "<key>" }                          one keyboard press into the
+//                                               focused element (e.g. "End",
+//                                               "Shift+Home", "Backspace"); for
+//                                               code editors (Monaco) that
+//                                               ignore fill()
+//   { type: "<text>" }                          type text into the focused element
 // ---------------------------------------------------------------------------
 async function runActions(page, actions) {
   for (const a of actions || []) {
-    if (a.click) await page.locator(a.click).first().click({ timeout: 15000 });
+    if (a.press) await page.keyboard.press(String(a.press));
+    else if (a.type !== undefined) await page.keyboard.type(String(a.type));
+    else if (a.click) await page.locator(a.click).first().click({ timeout: 15000 });
     else if (a.fill) await page.locator(a.fill).first().fill(String(a.value ?? ""), { timeout: 15000 });
     else if (a.wait_for) await page.locator(a.wait_for).first().waitFor({ state: "visible", timeout: 15000 });
+    else if (a.scroll) await page.locator(a.scroll).first().evaluate((el) => el.scrollIntoView({ block: "center" }));
     else if (a.wait_ms) await page.waitForTimeout(Number(a.wait_ms));
   }
 }

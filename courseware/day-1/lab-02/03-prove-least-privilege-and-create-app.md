@@ -26,7 +26,7 @@ kubectl --context k3d-workload auth can-i <verb> <resource> -n <namespace> \
   --as=system:serviceaccount:argocd-access:argocd-manager
 ```
 
-For a **cluster-scoped** check (a resource with no namespace), drop the `-n <namespace>`.
+For a **cluster-scoped** check (a resource with no namespace), drop the `-n <namespace>`. For that check `kubectl` also prints `Warning: resource 'namespaces' is not namespace scoped` and a blank line before the answer. The warning is harmless; the answer is the last line.
 
 > **Reading the `--as` string:** `system:serviceaccount:argocd-access:argocd-manager` means "the ServiceAccount named `argocd-manager` in the namespace `argocd-access`". `--as` lets you ask the question *as if you were* that identity.
 
@@ -99,7 +99,7 @@ For a **cluster-scoped** check (a resource with no namespace), drop the `-n <nam
    kubectl --context k3d-mgmt apply -f projects/storefront.yaml
    kubectl --context k3d-mgmt apply -f applications/storefront-dev.yaml
    ```
-4. Open the Applications list and the `storefront-dev` tree and diff.
+4. Open the Applications list, then the `storefront-dev` tile (its resource tree), then click **Diff** in the application's toolbar.
 
 **Shape of a correct result:** the `storefront` AppProject exists with your source repo/destination/kind allow-list (SS-L2-05); `storefront-dev` appears **`OutOfSync`** / **`Missing`** (SS-L2-06); its tree shows every node **`Missing`** (SS-L2-07); the diff shows **desired-only** resources — everything is "new" because nothing is deployed yet (SS-L2-08).
 
@@ -109,7 +109,7 @@ For a **cluster-scoped** check (a resource with no namespace), drop the `-n <nam
 - *Hint 3:* Stuck **Unknown** means the destination `server` does not match a registered cluster — make it byte-for-byte the E2 workload URL.
 - *Hint 4:* The `namespaceResourceWhitelist` must include every kind the chart renders, or Lab 3's sync will be blocked by the fence.
 
-**Success criterion:** `argocd app get storefront-dev` shows `Sync Status: OutOfSync` and `Health Status: Missing`, and the diff shows all resources as newly added. Your one-sentence explanation says *why*: Git describes resources not deployed yet, and sync is manual on purpose.
+**Success criterion:** `argocd app get storefront-dev` shows `Sync Status: OutOfSync from main (…)` (your commit ID differs) and `Health Status: Missing`, and the diff shows all resources as newly added. Your one-sentence explanation says *why*: Git describes resources not deployed yet, and sync is manual on purpose.
 
 ![Argo CD Project storefront detail (v3.5.2)](../../assets/screenshots/day-1/lab-02-05-project-storefront.png)
 
@@ -130,6 +130,8 @@ For a **cluster-scoped** check (a resource with no namespace), drop the `-n <nam
 <!-- CAPTURE-SPEC: SS-L2-05..08 — Project detail, Applications list, storefront-dev tree (all Missing), and diff (all desired-only). State: after E4 apply. Argo CD v3.5.2. -->
 
 > **💡 Why `OutOfSync` + `Missing` is good news, in plain words.** To show that status, Argo CD had to do three things: read your chart from Git (so E1 works), look at the workload cluster (so E2 works), and allow the Application under the `storefront` project (so your AppProject works). It then found nothing deployed yet. Picture comparing a shopping list with an empty fridge: every item is "missing", and that is exactly right *before* you go shopping. Lab 3 goes shopping.
+>
+> **See the cluster half for yourself:** open Settings → Clusters again. The `workload` row that said **Unknown** after E2 now says **Successful** (refresh the page if it has not changed yet). Creating `storefront-dev` was the first time Argo CD actually used your key card.
 
 ### ✅ What you should take away from E4
 

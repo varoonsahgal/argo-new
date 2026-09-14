@@ -38,7 +38,7 @@ Predict before you preview, and preview before you apply — every time.
 | `storefront-staging-workload` | `storefront-staging` | `main` |
 | `storefront-prod-workload` | `storefront-prod` | `storefront-1.0.0` |
 
-If you see two, six, `<no value>`, or `TODO`, a TODO is still wrong — do not apply.
+If the preview prints **only the header row** (zero Applications), prints two or six rows, shows `TODO` in any column, or ends in an error, a TODO is still wrong — do not apply. A preview of the untouched skeleton prints only the header row, with no error. Zero is a valid result, not a failure message, so you have to count.
 
 > **▶ Predict before you preview (write it down):** how many Applications, and what *exactly* are they called? The names are where template bugs first become visible.
 
@@ -49,14 +49,16 @@ cd ~/platform-config
 argocd appset generate applicationsets/storefront.yaml -o wide
 ```
 
-**Expected output** *(confirmed against live v3.5.2):*
+**Expected output** *(confirmed against live v3.5.2; the middle columns are trimmed to `...`)*:
 
 ```text
-NAME                                CLUSTER                             NAMESPACE           TARGET
-argocd/storefront-dev-workload      https://k3d-workload-server-0:6443  storefront-dev      main
-argocd/storefront-prod-workload     https://k3d-workload-server-0:6443  storefront-prod     storefront-1.0.0
-argocd/storefront-staging-workload  https://k3d-workload-server-0:6443  storefront-staging  main
+NAME                                CLUSTER                             NAMESPACE           PROJECT     ...  TARGET
+argocd/storefront-dev-workload      https://k3d-workload-server-0:6443  storefront-dev      storefront  ...  main
+argocd/storefront-prod-workload     https://k3d-workload-server-0:6443  storefront-prod     storefront  ...  storefront-1.0.0
+argocd/storefront-staging-workload  https://k3d-workload-server-0:6443  storefront-staging  storefront  ...  main
 ```
+
+The real table is wider. It also has `STATUS`, `HEALTH`, `SYNCPOLICY`, `CONDITIONS`, `REPO`, and `PATH` columns. `STATUS` and `HEALTH` are **blank**, because a preview creates nothing, so there is nothing to measure yet.
 
 Read the `TARGET` column: dev and staging track `main`, **only prod** is pinned. If *staging* shows `storefront-1.0.0`, a TODO is wired to a fixed value instead of `.targetRevision` — a real bug, not the expected result.
 
@@ -67,13 +69,21 @@ git add applicationsets/storefront.yaml && git commit -m "Lab 4 E1: complete sto
 kubectl --context k3d-mgmt apply -f applicationsets/storefront.yaml
 ```
 
-![ApplicationSets list with the storefront row after E1 (v3.5.2)](../../assets/screenshots/day-2/lab-04-04-applicationsets-list.png)
+All three reached `Synced`/`Healthy` within about 15 seconds in testing (first `OutOfSync`/`Missing`, then `Progressing`).
+
+**▶ Look in the UI:** click **ApplicationSets** in the left menu, then the `storefront` tile to open its tree. Then click **Applications** and type `storefront` in the search box.
+
+![ApplicationSets page with one storefront tile after E1 (v3.5.2)](../../assets/screenshots/day-2/lab-04-04-applicationsets-list.png)
+
+*Figure SS-L4-04 — The **ApplicationSets** page: one `storefront` tile, `Healthy`, `Applications: 3`. **ApplicationSet UI is Alpha since v3.5.0** — rely on the CLI.*
 
 ![ApplicationSet detail tree owning three generated Applications (v3.5.2)](../../assets/screenshots/day-2/lab-04-05-appset-generated-tree.png)
 
+*Figure SS-L4-05 — The `storefront` tile opened: one ApplicationSet node owning three `application` nodes. This Alpha tree shows a grey `?` on each generated app instead of its health. Read their real status in the next figure or with `argocd app list`. **Alpha UI.***
+
 ![Applications list: three storefront-*-workload apps Synced/Healthy (v3.5.2)](../../assets/screenshots/day-2/lab-04-06-generated-apps-list.png)
 
-*Figures SS-L4-04/05/06 — the `storefront` ApplicationSet, its three generated Applications, all reconciling through the ordinary application-controller. **ApplicationSet UI is Alpha since v3.5.0** — rely on the CLI.*
+*Figure SS-L4-06 — **Applications**, searched for `storefront`: the three generated apps, each `Healthy` and `Synced`. Only prod has target revision `storefront-1.0.0`. They reconcile through the same application-controller as Day 1's apps.*
 
 <!-- CAPTURE-SPEC: SS-L4-04/05/06 — ApplicationSets list, AppSet tree, filtered Applications list. State: after E1 apply+sync. Argo CD v3.5.2 (Alpha UI for 04/05). -->
 
@@ -111,11 +121,13 @@ argocd appset generate applicationsets/storefront.yaml -o wide
 
 > **▶ Predict first.** The matrix is *clusters × environments*. With one cluster you got 3. With two clusters matching, how many rows, and what new names?
 
-**What a correct result looks like.** Preview now prints **six** rows — the original three plus three targeting the *management* cluster (names ending `-in-cluster`). Six Applications from a one-line selector change is the whole lesson: a label edit is a fleet edit.
+**What a correct result looks like.** Preview now prints **six** rows — the original three plus three targeting the *management* cluster (names ending `-in-cluster`, destination `https://kubernetes.default.svc`). The list is sorted by name, so the new rows print **first**. Six Applications from a one-line selector change is the whole lesson: a label edit is a fleet edit.
 
-![ApplicationSet Preview tab showing extra Applications from a broadened selector (v3.5.2)](../../assets/screenshots/day-2/lab-04-03-appset-preview-diff.png)
+**▶ Optional — the same preview in the UI (Alpha).** Open **ApplicationSets** → `storefront` → **AppSet Details** → **PREVIEW** tab. Click **EDIT**; the box is now titled "APPLICATIONSET MANIFEST (edits are not saved)". Delete the `cluster-role: workload` line, click **PREVIEW**, and scroll down to the **DIFF** sub-tab. Click **CANCEL** when you are done. Nothing is saved to the cluster.
 
-*Figure SS-L4-03 — the Preview tab's DIFF, showing the extra Applications a broadened selector *would* create. **Alpha UI** — Preview edits are never saved; the CLI is the dependable equivalent.*
+![ApplicationSet Preview tab, DIFF sub-tab, showing an Application a broadened selector would add (v3.5.2)](../../assets/screenshots/day-2/lab-04-03-appset-preview-diff.png)
+
+*Figure SS-L4-03 — The Preview tab after deleting the selector line in the editor (not saved) and clicking **PREVIEW**. The **DIFF** sub-tab lists only the Applications that would change. Here that means three new blocks; the first, `storefront-dev-in-cluster`, is shown. Its left side is empty (it does not exist today) and its destination is the management cluster, `https://kubernetes.default.svc`. The three existing apps are not listed, because they would not change. **Alpha UI** — the CLI is the dependable equivalent.*
 
 <!-- CAPTURE-SPEC: SS-L4-03 — ApplicationSet Preview DIFF. State: E2, selector broadened in Preview (NOT saved). Argo CD v3.5.2 (Alpha UI). -->
 
@@ -159,9 +171,13 @@ git checkout -- applicationsets/storefront.yaml
 
 **What a correct result looks like.** `argocd appset generate` now prints only **two** rows (dev, staging), but `argocd app list` still shows **three** — `storefront-prod-workload` survives. The factory *stopped generating* prod but was **not allowed to delete** it. That app is now an **orphan**: still running, no longer generated.
 
-![ApplicationSet manifest showing create-update and preserveResourcesOnDeletion (v3.5.2)](../../assets/screenshots/day-2/lab-04-10-appset-sync-policy.png)
+> **⏱ Wait before you judge.** `argocd appset generate` reads Git the moment you run it. The ApplicationSet controller does not. It re-reads the Git files on its own schedule, **up to about 3 minutes** after your push (about 2 minutes in testing). Until that pass, prod would still be listed even *without* the protection policy. So wait 3 minutes after the push, then run `argocd app list` again before you conclude that prod survived.
 
-*Figure SS-L4-10 — `applicationsSync: create-update` and `preserveResourcesOnDeletion: true` on the ApplicationSet. **Alpha UI.***
+**▶ Optional — see the policy in the UI:** **ApplicationSets** → `storefront` → **AppSet Details** → **MANIFEST** tab.
+
+![ApplicationSet MANIFEST tab showing create-update and preserveResourcesOnDeletion (v3.5.2)](../../assets/screenshots/day-2/lab-04-10-appset-sync-policy.png)
+
+*Figure SS-L4-10 — The ApplicationSet's **MANIFEST** tab (it shows the `spec` only). Lines 48–50 are the spec-level `syncPolicy`: `preserveResourcesOnDeletion: true` and `applicationsSync: create-update`. It sits beside `template`, not inside it; the `syncPolicy` at lines 44–47 is the generated apps' own `automated` policy. **Alpha UI.***
 
 <!-- CAPTURE-SPEC: SS-L4-10 — ApplicationSet manifest, syncPolicy. State: after E3 apply. Highlight: applicationsSync create-update, preserveResourcesOnDeletion true. Argo CD v3.5.2 (Alpha UI). -->
 
@@ -171,13 +187,13 @@ git checkout -- applicationsets/storefront.yaml
 
 **Hints:**
 - *Hint 1:* Both settings live under `spec.syncPolicy` on the *ApplicationSet*, not on the generated apps or the `template.spec.syncPolicy` block.
-- *Hint 2:* If prod actually disappeared, you removed the input *before* applying the policy — apply the edited ApplicationSet first.
+- *Hint 2:* If prod actually disappeared, the policy was not in effect when the controller noticed the missing input. For example, you removed the input *before* applying the edited ApplicationSet, or the policy sits under `template.spec`. Check what is live with `kubectl --context k3d-mgmt -n argocd get applicationset storefront -o jsonpath='{.spec.syncPolicy}'`. Then put the input back (commit, push); the factory regenerates prod on its next pass.
 
 ### ✅ What you should take away from E3
 
 - **Removing an input stops the factory from generating that app — it does not have to delete it.** With `create-update`, the app stays.
 - **An app that stays but is no longer generated is an *orphan*.** Someone must decide what to do with it.
-- **Two different switches, two different layers:** `applicationsSync` protects the **Application objects**; `preserveResourcesOnDeletion` protects the **running workload** underneath.
+- **Two different switches, two different layers:** `applicationsSync` protects the **Application objects**; `preserveResourcesOnDeletion` protects the **running workload** underneath. It does that by removing the `resources-finalizer` (the clean-up marker from Session 5) from each generated Application, so deleting one of them leaves its workload running. You can see it: `kubectl --context k3d-mgmt -n argocd get applications -o custom-columns='NAME:.metadata.name,FINALIZERS:.metadata.finalizers'` shows `<none>` after the policy is applied.
 
 ---
 

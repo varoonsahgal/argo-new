@@ -624,7 +624,7 @@ Every lab's Environment check must begin with `reset-lab.sh <CP> --verify-only`,
 | helm CLI (VM and local tools dir) | **v4.2.1**, deliberately matching the repo-server's bundled Helm (Helm 4.3.0 and 3.22.0 exist but are **not** used) | VERIFIED exists |
 | argocd CLI | **v3.5.2** | VERIFIED |
 | Gitea | **`gitea/gitea:1.27.3-rootless`** | VERIFIED tag exists (amd64, arm64) |
-| Sample workload image | **`stefanprodan/podinfo:6.15.0`** (Docker Hub; amd64, arm64) | VERIFIED tag exists |
+| Sample workload image | **`stefanprodan/podinfo:6.15.0`** (Docker Hub; amd64, arm64), plus **`6.14.1`** preloaded as the Day 1 dev/staging starting tag that Lab 3 promotes from | VERIFIED both tags exist (Docker Hub tag API, 2026-09-13); `6.16.0` does **not** exist |
 | Hook/utility image | busybox, exact tag **TO-PIN** by `environment-engineer` after checking | PENDING (P-16) |
 | Redis image | whatever chart 10.8.4 pins by default (read from `helm show values`) | PENDING (P-16) |
 | Docker Engine, `yq`, `jq`, Git on the VM | **TO-PIN** by `environment-engineer` | PENDING (P-16) |

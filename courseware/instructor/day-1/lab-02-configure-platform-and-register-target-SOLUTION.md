@@ -4,7 +4,7 @@
 > **Participant guide (now a modular arc):** [lab-02/README.md](../../day-1/lab-02/README.md)
 > **Exercise → module map:** E1, E2 are in [module 02](../../day-1/lab-02/02-connect-repo-and-register-cluster.md); E3, E4 in [module 03](../../day-1/lab-02/03-prove-least-privilege-and-create-app.md); E5 in [module 04](../../day-1/lab-02/04-diagnose-and-wrap-up.md). Exercise IDs and answers below are unchanged.
 > **Timebox:** 60 minutes · **Scaffolding:** G1 (maximally guided)
-> **Verified:** 2026-09-13, end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`. Every output block below was captured from that run unless marked otherwise. SHAs, token lengths, and ages will differ on your machine. **No password or token value appears anywhere in this file.**
+> **Verified:** 2026-09-13, end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`. **Re-verified the same evening** in the Lab 2 validation pass (`courseware/reviews/lab-02-validation-2026-09-13.md`): server-side apply for every credential Secret, the cluster status that stays `Unknown` until an Application uses it, the one-hour repository status cache, and the stretch A cleanup. Every output block below was captured from those runs unless marked otherwise. SHAs, token lengths, and ages will differ on your machine. **No password or token value appears anywhere in this file.**
 
 ---
 
@@ -27,38 +27,74 @@
 
 ## 0. Before class — pre-flight (10 minutes)
 
-### 0.1 Remove stale onboarding Secrets on any VM that has been through Lab 2 before
+### 0.1 Confirm the start state is really empty
 
-**This is the most important pre-flight item in Day 1.** `reset-lab.sh CP-lab-02` does **not** delete the `repo-storefront-gitops` or `cluster-workload` Secrets, and its verifier does not check for them. Verified in rehearsal: after a reset to `CP-lab-02`, both Secrets were still present (46 hours old), and `argocd repo list` and `argocd cluster list` already showed both as `Successful` — *before anyone had done Exercise 1*. That destroys the lab's central before/after reveal.
+`reset-lab.sh CP-lab-02` deletes every repository, repo-creds, and cluster Secret that the checkpoint does not contain, and its verifier checks for them. (Before 2026-09-13 it did not: a rehearsed VM showed `storefront-gitops` and `workload` already `Successful` before Exercise 1, which destroys the lab's before/after reveal.) The reset also removes anything a rehearsal of stretch A left on the workload cluster.
 
-On a freshly bootstrapped VM they do not exist. On a VM you rehearsed on, or one a participant reset, run:
+On any VM you rehearsed on, run:
 
 ```bash
 reset-lab.sh CP-lab-02 --local --yes
-kubectl --context k3d-mgmt -n argocd delete secret repo-storefront-gitops cluster-workload --ignore-not-found
+reset-lab.sh CP-lab-02 --verify-only --local
 kubectl --context k3d-mgmt -n argocd get secret -l argocd.argoproj.io/secret-type=repository
 kubectl --context k3d-mgmt -n argocd get secret -l argocd.argoproj.io/secret-type=cluster
 ```
 
-**Expect:** `No resources found in argocd namespace.` for the first query, and only `in-cluster` for the second. (Deleting these two Secrets is safe at `CP-lab-02`: `hello-reconcile` uses a public repository and the `in-cluster` destination.)
+**Expect** (verified; the reset took 24 s):
 
-Give participants the same two commands if they reset their own VM mid-lab.
+```text
+==> Verification for CP-lab-02
+  PASS  Application hello-reconcile Synced/Healthy
+  PASS  Application team-a-guestbook absent
+  PASS  AppProject team-a absent
+  PASS  Secret in-cluster present
+  PASS  Repository and cluster Secrets are exactly: in-cluster
+  PASS  workload namespace storefront-prod present
+  PASS  workload SA argocd-manager absent (not registered)
+
+PASS CP-lab-02 is in the expected state.
+No resources found in argocd namespace.
+NAME         TYPE     DATA   AGE
+in-cluster   Opaque   3      2d20h
+```
+
+A participant who resets mid-lab gets the same clean state; no extra delete commands are needed. The reset also resets their `~/platform-config` clone. If they then re-run Module 1's `git clone`, Git answers `fatal: destination path 'platform-config' already exists and is not an empty directory.` — the guide tells them to `cd` into the existing copy.
 
 ### 0.2 Know where the lab files live
 
 The guide refers to `~/course/lab-files/lab-02/…`. If that directory is missing on a VM, the same files are in the course checkout at `~/argo-cd-material/courseware/environment/lab-files/lab-02/`.
 
-### 0.3 Know the three places where the guide and v3.5.2 disagree
+### 0.3 Know the four places where v3.5.2 surprises people
 
-| Where | Guide says | What actually happens (verified) | What to tell the room |
-|---|---|---|---|
-| Exercise 5, record 2 (loopback cluster) | The Clusters page shows **Failed** | The UI shows **Unknown** — see the guide's own Figure [SS-L2-10](../../assets/screenshots/day-1/lab-02-10-cluster-failed.png) — and `argocd cluster list` shows an **empty** STATUS column. No Application uses that cluster, so Argo CD never attempted a connection | "Nobody measured it. `Unknown` is the honest answer." (Section 7) |
-| Stretch C, the prediction | "The answer is `Unknown`" | Sync status is `Unknown`, but the **health badge can still read `Healthy`** (last known), and `argocd cluster list` **still says `Successful`** for a while | Use all three facts — they are the point (Section 8) |
-| Stretch A | "Explain why it fails" | It fails — **after** creating a cluster-wide ServiceAccount, ClusterRole, binding, and long-lived token on the workload cluster. A reset does not remove them | Clean up afterwards (Section 8) |
+The participant guide now describes all four correctly. Knowing them lets you answer "is this broken?" in one sentence.
 
-### 0.4 A security note to hold in reserve (advanced audiences)
+| Where | What happens (verified) | What to tell the room |
+|---|---|---|
+| E2, right after registering | `argocd cluster list` shows an **empty** STATUS for up to a minute, then **Unknown** — *"Cluster has no applications and is not being monitored."* It turns **Successful** about 5 s after E4 creates `storefront-dev` | "Argo CD tests a cluster only when an Application needs it. Nobody has checked yet." (Sections 3 and 5) |
+| E1 and E5 record 1, the Repositories page | argocd-server caches each repository's connection result for **1 hour** (`--connection-status-cache-expiration`, default `1h0m0s`). A plain page load or `argocd repo list` can show the old result after a fix | Click **Refresh list** or run `argocd repo list --refresh hard` (Sections 2 and 6) |
+| E5 record 2 (loopback cluster) | The UI shows **Unknown**, never Failed; the detail page and CLI say *"Cluster has no applications and is not being monitored."* | "Nobody measured it. `Unknown` is the honest answer." (Section 6) |
+| Stretch A | It fails — **after** creating a ServiceAccount, a ClusterRole allowing every verb on every resource, a binding, and a long-lived token on the workload cluster | The guide warns and gives the cleanup; `reset-lab.sh` also removes them (Section 8) |
 
-`kubectl apply` (client-side) stores a full copy of each Secret — **including the password or token** — in the `kubectl.kubernetes.io/last-applied-configuration` annotation. Verified: after this lab, `cluster-workload`, `repo-storefront-gitops`, and (from Day 2) `course-repo-creds` all carry their credential in that annotation. On Day 2 this becomes visible in a surprising way (see the Lab 4 walkthrough, Exercise 5A). Verified alternative: `kubectl apply --server-side -f -` does **not** add that annotation. Do not change the lab's commands mid-class; mention it if someone asks "is `kubectl apply` of a Secret safe?"
+### 0.4 Why every Secret command in this lab says `--server-side`
+
+A client-side `kubectl apply` stores a full copy of the object — **including the password or token** — in the `kubectl.kubernetes.io/last-applied-configuration` annotation. On Day 2 that annotation leaks in a surprising way (see the Lab 4 walkthrough, Exercise 5A). The guide's E1/E2/E5 steps use `kubectl apply --server-side -f -`, which does not create it, and `reset-lab.sh` strips any stale copy and re-applies server-side.
+
+Verified behavior, if someone asks:
+
+| Situation | Annotation afterwards |
+|---|---|
+| New Secret, `apply --server-side` | none |
+| Secret already has the annotation, then `apply --server-side` | **still there, and rewritten with the new values** |
+| Remove it first (`kubectl annotate secret <name> kubectl.kubernetes.io/last-applied-configuration-`), then `apply --server-side` | none |
+| Plain `kubectl apply` over a server-side-applied Secret | added again |
+
+Check without printing values — list the key **names** only:
+
+```bash
+kubectl --context k3d-mgmt -n argocd get secret repo-storefront-gitops -o go-template='{{range $k, $v := .metadata.annotations}}{{$k}}{{"\n"}}{{end}}'
+```
+
+**Expect:** no output.
 
 ---
 
@@ -66,12 +102,12 @@ The guide refers to `~/course/lab-files/lab-02/…`. If that directory is missin
 
 | Clock | Segment | Your job |
 |---|---|---|
-| 0:00–0:05 | Why this matters + environment check | Show the empty address book (Section 6.1) — make them remember "zero repository Secrets" |
-| 0:05–0:12 | Walkthrough (Sections 6.2–6.5) | Emphasize "valid from where it is used" |
+| 0:00–0:05 | Why this matters + environment check | Show the empty address book (Section 1) — make them remember "zero repository Secrets" |
+| 0:05–0:12 | Module 1 sections 3–5 | Emphasize "valid from where it is used" |
 | 0:12–0:22 | E1 — connect the private repo | Watch for passwords being echoed |
-| 0:22–0:39 | E2 — register the workload cluster | Collect the "which cluster gets the RBAC?" prediction first |
+| 0:22–0:39 | E2 — register the workload cluster | Collect the "which cluster gets the RBAC?" prediction first; pre-empt "why Unknown?" |
 | 0:39–0:47 | E3 — `can-i` matrix | Pairs |
-| 0:47–0:55 | E4 — AppProject + Application | The `../../` path is where time goes |
+| 0:47–0:55 | E4 — AppProject + Application | The `../../` path is where time goes; show the cluster turning Successful |
 | 0:55–0:60 | E5 record 1 + debrief | Record 2 and stretches only if ahead |
 
 ---
@@ -84,7 +120,7 @@ The guide refers to `~/course/lab-files/lab-02/…`. If that directory is missin
 
 > "Here's the claim I want you to test today: 'connecting a repository' and 'registering a cluster' are not features. They are Secrets. By the end of Exercise 2 you'll either believe me or prove me wrong."
 
-**Do** (Section 6.1, before anything is connected):
+**Do** (Module 1 section 4, before anything is connected):
 
 ```bash
 kubectl --context k3d-mgmt -n argocd get secret -l argocd.argoproj.io/secret-type=repository
@@ -96,7 +132,7 @@ kubectl --context k3d-mgmt -n argocd get secret -l argocd.argoproj.io/secret-typ
 ```text
 No resources found in argocd namespace.
 NAME         TYPE     DATA   AGE
-in-cluster   Opaque   3      2d
+in-cluster   Opaque   3      2d20h
 ```
 
 **Say:** "Remember this screen. Zero repositories, one cluster. We'll run the same two commands in twenty minutes."
@@ -107,11 +143,11 @@ in-cluster   Opaque   3      2d
 
 ### What participants just attempted
 
-Replace `<PASSWORD>` in the template with the value from the credential file — without the password appearing in the file, the shell history, or Git — apply it to the management cluster, and confirm `Successful`.
+Replace `<PASSWORD>` in the template with the value from the credential file — without the password appearing in the file, the shell history, Git, or an annotation — apply it to the management cluster, and confirm `Successful`.
 
 ### Prediction answer
 
-**"Successful immediately, or a delay?"** — Within seconds. In the verified run, the first `argocd repo list` after the apply already showed the status. The connection check runs when the list is requested, so the UI shows it the next time the Repositories page loads.
+**"Successful immediately, or a delay?"** — Immediately. In the verified run, the first `argocd repo list`, run the same second as the apply, already showed `Successful`: listing repositories runs a connection test for a repository it has not tested yet. The catch comes later: that result is then cached for up to an hour (pre-flight 0.3).
 
 ### The solution
 
@@ -121,17 +157,17 @@ Replace `<PASSWORD>` in the template with the value from the credential file —
 cd ~/platform-config
 GITEA_PW="$(cat ~/course/credentials/gitea-student.txt)" \
   yq '.stringData.password = strenv(GITEA_PW)' repositories/storefront-gitops.secret.template.yaml \
-  | kubectl --context k3d-mgmt apply -f -
+  | kubectl --context k3d-mgmt apply --server-side -f -
 ```
 
-**Do** (option 2 — `envsubst`, as the guide's hint suggests; verified with a server-side dry run, and the rendered value was confirmed to match the credential file):
+**Do** (option 2 — `envsubst`, as the guide's hint suggests; verified live):
 
 ```bash
 cd ~/platform-config
 export GITEA_PW="$(cat ~/course/credentials/gitea-student.txt)"
 sed 's/<PASSWORD>/${GITEA_PW}/' repositories/storefront-gitops.secret.template.yaml \
   | envsubst '${GITEA_PW}' \
-  | kubectl --context k3d-mgmt apply -f -
+  | kubectl --context k3d-mgmt apply --server-side -f -
 unset GITEA_PW
 ```
 
@@ -142,25 +178,27 @@ unset GITEA_PW
 ```bash
 argocd repo list
 kubectl --context k3d-mgmt -n argocd get secret -l argocd.argoproj.io/secret-type=repository --show-labels
+kubectl --context k3d-mgmt -n argocd get secret repo-storefront-gitops -o go-template='{{range $k, $v := .metadata.annotations}}{{$k}}{{"\n"}}{{end}}'
 ```
 
-**Expect** (verified):
+**Expect** (verified; the apply itself printed `secret/repo-storefront-gitops serverside-applied`, and the last command prints nothing):
 
 ```text
 TYPE  NAME  REPO                                                INSECURE  OCI    LFS    CREDS  STATUS      MESSAGE  PROJECT
 git         http://lab-gitea:3000/course/storefront-gitops.git  false     false  false  false  Successful
 
 NAME                     TYPE     DATA   AGE   LABELS
-repo-storefront-gitops   Opaque   4      5s    argocd.argoproj.io/secret-type=repository
+repo-storefront-gitops   Opaque   4      1s    argocd.argoproj.io/secret-type=repository
 ```
 
-**Click:** Settings (gear) → **Repositories**. Compare with [Figure SS-L2-02](../../assets/screenshots/day-1/lab-02-02-repository-connected.png).
+**Click:** Settings (gear) → **Repositories**. Compare with [Figure SS-L2-02](../../assets/screenshots/day-1/lab-02-02-repository-connected.png): one row, no credentials template.
 
 ### Why it's correct
 
 - The **label** `argocd.argoproj.io/secret-type: repository` is the entire feature. Argo CD watches for Secrets with that label in its own namespace.
 - `$(cat …)` puts the file's contents into a variable. The **command text** saved in shell history contains only `cat ~/course/credentials/…`, never the password.
 - Piping to `apply -f -` means the filled-in Secret never exists as a file on disk, so it can never be committed by accident.
+- `--server-side` means no copy of the password is stored in the `last-applied-configuration` annotation (pre-flight 0.4).
 
 ### Wrong turns
 
@@ -168,14 +206,16 @@ repo-storefront-gitops   Opaque   4      5s    argocd.argoproj.io/secret-type=re
 |---|---|---|
 | Edited the template and typed the password in | It works — and the password is now in a file in a Git working copy | "It works. Now run `git status`. That file is one `git add .` away from being in history forever." |
 | `echo "password: $(cat …)"` to check | Password on screen | "Anyone behind you just learned it. Verify with `argocd repo list`, which never shows it." |
-| Used `envsubst` without the `sed` step | Status `Failed` — the literal text `<PASSWORD>` was sent as the password | "`envsubst` only understands `${…}`. Look at what the template actually contains." |
+| Used `envsubst` without the `sed` step | `argocd repo list --refresh hard` shows `Failed … authentication required: Failed to authenticate user` — the literal text `<PASSWORD>` was sent. If the repository was already `Successful` earlier, a plain `argocd repo list` can keep showing `Successful` (verified) | "`envsubst` only understands `${…}`. Look at what the template actually contains." |
+| Fixed the password and re-applied, but the page still says `Failed` | The one-hour status cache (verified: plain list `Failed`, `--refresh hard` `Successful`) | "The Secret is fixed. The page is showing a remembered answer. Click **Refresh list**." |
+| Left out `--server-side` | Works; the annotation-name check prints `kubectl.kubernetes.io/last-applied-configuration` | "That annotation now holds your password. Remove it with `kubectl annotate … last-applied-configuration-` and re-apply with `--server-side`." |
 | Applied to `k3d-workload` | Repositories page stays empty | "Which cluster runs Argo CD? That's the only cluster whose address book it reads." |
 
 ### Wow moment
 
 > "Settings → Repositories is not a database. It's a picture of one labeled Secret. The UI row and the `kubectl` output you just printed are the same object seen through two windows."
 
-> "And that green 'Successful'? It's a measurement taken a moment ago. A credential that expires next month shows green today and fails the morning it matters."
+> "And that green 'Successful'? It's a measurement from the last check — and on this page, that check can be an hour old. A credential that expires next month shows green today and fails the morning it matters."
 
 ---
 
@@ -230,7 +270,7 @@ CA="$(kubectl --context k3d-workload -n argocd-access get secret argocd-manager-
   -o jsonpath='{.data.ca\.crt}')"
 echo "token length=${#TOKEN} ca length=${#CA}"     # proves both are populated, prints no value
 sed -e "s|<TOKEN>|${TOKEN}|" -e "s|<CA_DATA>|${CA}|" clusters/workload.secret.template.yaml \
-  | kubectl --context k3d-mgmt apply -f -
+  | kubectl --context k3d-mgmt apply --server-side -f -
 unset TOKEN CA
 ```
 
@@ -238,7 +278,7 @@ unset TOKEN CA
 
 ```text
 token length=936 ca length=756
-secret/cluster-workload created
+secret/cluster-workload serverside-applied
 ```
 
 **Say** (on the `sed` delimiters): "Why `|` instead of `/` in `sed`? Because base64 CA data contains `/` and `+`. A token or CA never contains `|`, so it is a safe delimiter. Choosing a delimiter is a tiny decision that breaks a lot of scripts."
@@ -252,19 +292,31 @@ kubectl --context k3d-mgmt -n argocd get secret -l argocd.argoproj.io/secret-typ
 argocd cluster list
 ```
 
-**Expect** (verified):
+**Expect** (verified, immediately after the apply):
 
 ```text
 NAME               TYPE     DATA   AGE
-cluster-workload   Opaque   5      5s
-in-cluster         Opaque   3      2d
+cluster-workload   Opaque   5      0s
+in-cluster         Opaque   3      2d20h
 
 SERVER                                             NAME        VERSION  STATUS      MESSAGE  PROJECT
-https://k3d-workload-server-0:6443 (5 namespaces)  workload    v1.35.8  Successful
+https://k3d-workload-server-0:6443 (5 namespaces)  workload
 https://kubernetes.default.svc                     in-cluster  v1.35.8  Successful
 ```
 
-**Click:** Settings → **Clusters**, then the `workload` row ([SS-L2-03](../../assets/screenshots/day-1/lab-02-03-cluster-registered.png), [SS-L2-04](../../assets/screenshots/day-1/lab-02-04-cluster-detail.png)).
+**Expect** (verified, `argocd cluster list` about a minute later):
+
+```text
+SERVER                                             NAME        VERSION  STATUS      MESSAGE                                                  PROJECT
+https://k3d-workload-server-0:6443 (5 namespaces)  workload             Unknown     Cluster has no applications and is not being monitored.
+https://kubernetes.default.svc                     in-cluster  v1.35.8  Successful
+```
+
+**Click:** Settings → **Clusters** ([SS-L2-03](../../assets/screenshots/day-1/lab-02-03-cluster-registered.png)), then click the `workload` row. The detail page ([SS-L2-04](../../assets/screenshots/day-1/lab-02-04-cluster-detail.png)) shows the five namespaces, the `cluster-role=workload region=lab` labels, APPLICATIONS `0`, and Connection state `Unknown`.
+
+**Say** (before anyone asks "why isn't it green?"):
+
+> "`Unknown` is not a failure. Argo CD connects to a cluster only when an Application deploys there, and we haven't given it one — that's Exercise 4. Keep this tab open. You'll watch this row change."
 
 **Wow moment:**
 
@@ -288,13 +340,15 @@ kubectl config view -o jsonpath='{range .clusters[?(@.name=="k3d-workload")]}{.c
 
 ### Wrong turns
 
+Because the cluster shows `Unknown` for everyone until E4, most E2 mistakes are **invisible until E4**. Ask each pair to read their `server:` line and decoded/not-decoded fields aloud before moving on.
+
 | What they did | What they see | What you say |
 |---|---|---|
 | Applied the RBAC file to `k3d-mgmt` | Token Secret read on workload fails with `NotFound`; later, every `can-i` answer is `no` | "Where does the identity have to live?" |
-| Read the token before the controller populated it | `token length=0` | Wait two seconds and read again |
-| Decoded the CA with `base64 -d` | Cluster shows a TLS/certificate error | "`caData` wants base64. Leave it encoded." |
-| Forgot to decode the token | Cluster shows `Unknown`; controller log mentions credentials | "The template wants the raw bearer token." |
-| Used the kubeconfig server address | Connection refused / `Unknown` | The `127.0.0.1` speech above |
+| Read the token before the controller populated it | `token length=0` (in the verified run the token was already populated when first read) | Wait two seconds and read again |
+| Decoded the CA with `base64 -d` | Nothing different yet; in E4 the Application reports a certificate error instead of `OutOfSync` *(not re-run in this pass)* | "`caData` wants base64. Leave it encoded." |
+| Forgot to decode the token | Nothing different yet; in E4 the Application reports a credentials error *(not re-run in this pass)* | "The template wants the raw bearer token." |
+| Used the kubeconfig server address | Nothing different yet; in E4 `storefront-dev` shows `Unknown` with an error naming that address | The `127.0.0.1` speech above |
 
 ---
 
@@ -312,7 +366,7 @@ kubectl --context k3d-workload auth can-i create networkpolicies -n team-a --as=
 kubectl --context k3d-workload auth can-i delete namespaces --as=$AS
 ```
 
-**Expect** (verified; the warning on row 4 is printed by `kubectl` and is harmless):
+**Expect** (verified; the warning on row 4 is printed by `kubectl` and is harmless — the guide now says so):
 
 ```text
 yes
@@ -327,7 +381,7 @@ no
 |---|---|---|---|
 | 1 | Create a Deployment in `storefront-dev` | **yes** | `argocd-deployer` Role + RoleBinding exist in that namespace and include `deployments` write verbs. |
 | 2 | Create a Deployment in `default` | **no** | No RoleBinding in `default`. A namespace with no binding grants nothing. |
-| 3 | Create a NetworkPolicy in `team-a` | **no** | `team-a` gets the *reduced* Role `argocd-deployer-team`, which deliberately omits NetworkPolicies, ResourceQuotas, and LimitRanges. |
+| 3 | Create a NetworkPolicy in `team-a` | **no** | `team-a` gets the *reduced* Role `argocd-deployer-team`, which deliberately omits NetworkPolicies, ResourceQuotas, and LimitRanges. (Contrast, verified: the same check in `storefront-dev` is `yes`.) |
 | 4 | Delete a Namespace (cluster-scoped) | **no** | There is no ClusterRoleBinding with write access anywhere. Namespaced Roles can never grant a cluster-scoped verb. |
 
 **Bonus demonstration** (verified) — the wrong-context mistake:
@@ -410,7 +464,7 @@ spec:
     namespace: storefront-dev
 ```
 
-> **Note:** the checkpoint copy of the project (`CP-lab-03`) also lists the `storefront-staging` and `storefront-prod` destinations. Lab 2 only needs `storefront-dev`; Lab 3 Exercise 2 widens it deliberately. A participant who adds all three today is not wrong, but ask them why they granted access nobody asked for yet.
+> **Note:** the checkpoint copy of the project (`CP-lab-03`) also lists the `storefront-staging` and `storefront-prod` destinations. Lab 2 only needs `storefront-dev`; Lab 3 Exercise 2 widens it deliberately. A participant who adds all three today is not wrong, but ask them why they granted access nobody asked for yet. The `CP-lab-03` verifier does not check destinations, so both versions pass it.
 
 **Do:**
 
@@ -424,7 +478,7 @@ kubectl --context k3d-mgmt apply -f applications/storefront-dev.yaml
 argocd app get storefront-dev --refresh
 ```
 
-**Expect** (verified):
+**Expect** (verified; the storefront-gitops SHA differs per run):
 
 ```text
 Name:               argocd/storefront-dev
@@ -439,7 +493,7 @@ Source:
   Helm Values:      ../../envs/dev/values.yaml
 SyncWindow:         Sync Allowed
 Sync Policy:        Manual
-Sync Status:        OutOfSync from main (cbeba81)
+Sync Status:        OutOfSync from main (a0ec068)
 Health Status:      Missing
 
 GROUP  KIND        NAMESPACE       NAME        STATUS     HEALTH   HOOK  MESSAGE
@@ -447,6 +501,22 @@ GROUP  KIND        NAMESPACE       NAME        STATUS     HEALTH   HOOK  MESSAGE
        Service     storefront-dev  storefront  OutOfSync  Missing
 apps   Deployment  storefront-dev  storefront  OutOfSync  Missing
 ```
+
+**Do** (the payoff from Exercise 2):
+
+```bash
+argocd cluster list
+```
+
+**Expect** (verified, 5 s after the Application was applied):
+
+```text
+SERVER                                             NAME        VERSION  STATUS      MESSAGE  PROJECT
+https://kubernetes.default.svc                     in-cluster  v1.35.8  Successful
+https://k3d-workload-server-0:6443 (5 namespaces)  workload    v1.35.8  Successful
+```
+
+**Say:** "Remember the `Unknown` row? The moment an Application needed that cluster, Argo CD used your key card for the first time — and it worked."
 
 **Do:**
 
@@ -478,7 +548,7 @@ diff exit=1
 
 Each diff section begins `0a1,…` followed only by `>` lines — desired-only, nothing live yet.
 
-**Click:** the Applications list ([SS-L2-06](../../assets/screenshots/day-1/lab-02-06-applications-with-dev.png)), the `storefront-dev` tree ([SS-L2-07](../../assets/screenshots/day-1/lab-02-07-dev-tree-missing.png)), and **App Diff** ([SS-L2-08](../../assets/screenshots/day-1/lab-02-08-dev-diff-all-new.png)).
+**Click:** the Applications list ([SS-L2-06](../../assets/screenshots/day-1/lab-02-06-applications-with-dev.png)), the `storefront-dev` tree ([SS-L2-07](../../assets/screenshots/day-1/lab-02-07-dev-tree-missing.png)), and the **Diff** toolbar button ([SS-L2-08](../../assets/screenshots/day-1/lab-02-08-dev-diff-all-new.png)).
 
 ### Answer key — the one-sentence explanation
 
@@ -505,11 +575,11 @@ ComparisonError  Failed to load target state: failed to generate manifest for so
 
 > "Read the path in the error: `charts/envs/dev/values.yaml`. Helm resolved your relative path starting *inside* `charts/storefront`. One `..` got you to `charts/`. You need two to get back to the repo root. The error message literally shows you where you ended up."
 
-Also point out the badges: **sync `Unknown`, health `Healthy`.** Argo CD couldn't render, so it couldn't compare — and health is left at its last known value. Nothing was applied.
+Also point out the badges: **sync `Unknown`, health `Healthy`.** Argo CD couldn't render, so it couldn't compare — and the health badge is not a real measurement here. Nothing was applied.
 
 | Other mistake | Symptom | Fix |
 |---|---|---|
-| Destination `server` doesn't byte-match the registered cluster | App stuck `Unknown` | Copy the URL from `argocd cluster list`, **without** the ` (5 namespaces)` suffix |
+| Destination `server` doesn't byte-match the registered cluster | App stuck `Unknown`; verified condition: `InvalidSpecError  error getting cluster by server "https://127.0.0.1:6551": … cluster "https://127.0.0.1:6551" not found` | Copy the URL from `argocd cluster list`, **without** the ` (5 namespaces)` suffix |
 | Forgot a kind in `namespaceResourceWhitelist` | Nothing today; the Lab 3 sync is refused for that kind | Add the kind — the fence allows exactly what it lists |
 | Added an `automated:` block | App syncs immediately | Remove it — Lab 3 turns automation on deliberately |
 
@@ -528,8 +598,8 @@ Also point out the badges: **sync `Unknown`, health `Healthy`.** Argo CD couldn'
 ```bash
 GITEA_PW="$(cat ~/course/credentials/gitea-student.txt)" \
   yq '.stringData.password = strenv(GITEA_PW)' ~/course/lab-files/lab-02/broken/repo-secret-wrong-url.yaml \
-  | kubectl --context k3d-mgmt apply -f -
-argocd repo list
+  | kubectl --context k3d-mgmt apply --server-side -f -
+argocd repo list --refresh hard
 ```
 
 **Expect** (verified):
@@ -540,9 +610,16 @@ git         http://lab-gitea:3000/course/storefront-gitops.git  false     false 
 git         http://lab-gitea:3000/course/storefront-typo.git    false     false  false  false  Failed      Unable to connect to repository: rpc error: code = Unknown desc = error testing repository connectivity: unable to ls-remote HEAD on repository: failed to list refs: repository not found: Repository not found
 ```
 
-**Answer key:** the single wrong field is `stringData.url` (`storefront-typo` instead of `storefront-gitops`). The message says "repository not found" — the host was reachable and the credentials were accepted; the *repository path* does not exist. [Figure SS-L2-09](../../assets/screenshots/day-1/lab-02-09-repository-failed.png).
+**Click:** Settings → Repositories → **Refresh list**, then the `storefront-typo` row. The message is under **Connection State Details** ([SS-L2-09](../../assets/screenshots/day-1/lab-02-09-repository-failed.png)); the list itself only says Failed.
+
+**Answer key:** the single wrong field is `stringData.url` (`storefront-typo` instead of `storefront-gitops`). The message says "repository not found" — the host was reachable and the credentials were accepted; the *repository path* does not exist.
 
 **Say:** "Read the message from right to left. 'Repository not found.' Not 'no such host'. Not 'authentication failed'. Each of those three messages points at a different field — host, path, or credential."
+
+**If it goes sideways** (both verified):
+
+- **Someone applied the file without rendering it** (the file still says `<PASSWORD>`): the message is `authentication required: Failed to authenticate user`. Gitea refuses the bad password before it reveals whether the repository exists, so the file now has two wrong fields. Delete it and render it properly.
+- **They then rendered it and still see "authentication required"**: that is the one-hour status cache. `argocd repo list --refresh hard` (or **Refresh list**) shows "repository not found".
 
 **Do:**
 
@@ -558,21 +635,30 @@ kubectl --context k3d-mgmt -n argocd delete secret repo-broken-url
 TOKEN="$(kubectl --context k3d-workload -n argocd-access get secret argocd-manager-token \
   -o jsonpath='{.data.token}' | base64 -d)"
 sed "s|<TOKEN>|${TOKEN}|" ~/course/lab-files/lab-02/broken/cluster-secret-wrong-server.yaml \
-  | kubectl --context k3d-mgmt apply -f -
+  | kubectl --context k3d-mgmt apply --server-side -f -
 unset TOKEN
 argocd cluster list
 ```
 
-**Expect** (verified):
+**Expect** (verified, immediately — empty STATUS for the new row):
 
 ```text
 SERVER                                             NAME               VERSION  STATUS      MESSAGE  PROJECT
-https://k3d-workload-server-0:6443 (5 namespaces)  workload           v1.35.8  Successful
 https://kubernetes.default.svc                     in-cluster         v1.35.8  Successful
 https://127.0.0.1:6443                             workload-loopback
+https://k3d-workload-server-0:6443 (5 namespaces)  workload           v1.35.8  Successful
 ```
 
-The UI shows **Unknown** ([SS-L2-10](../../assets/screenshots/day-1/lab-02-10-cluster-failed.png)); the CLI's STATUS column is **empty**.
+**Expect** (verified, about a minute later):
+
+```text
+SERVER                                             NAME               VERSION  STATUS      MESSAGE                                                  PROJECT
+https://k3d-workload-server-0:6443 (5 namespaces)  workload           v1.35.8  Successful
+https://kubernetes.default.svc                     in-cluster         v1.35.8  Successful
+https://127.0.0.1:6443                             workload-loopback           Unknown     Cluster has no applications and is not being monitored.
+```
+
+The UI shows **Unknown** ([SS-L2-10](../../assets/screenshots/day-1/lab-02-10-cluster-failed.png)); clicking the row shows the same message under **Details**. Applying the file without rendering `<TOKEN>` gives exactly the same result (verified) — Argo CD never tries the credential either.
 
 **Answer key:** the wrong field is `stringData.server` (`https://127.0.0.1:6443`). From inside the controller Pod, `127.0.0.1` is the Pod itself.
 
@@ -580,9 +666,9 @@ The UI shows **Unknown** ([SS-L2-10](../../assets/screenshots/day-1/lab-02-10-cl
 
 **Say:**
 
-> "The guide said we'd see 'Failed'. We see 'Unknown' — or nothing. Why?"
+> "Most of you predicted 'Failed'. We see 'Unknown'. Why?"
 
-> "Because no Application points at this cluster, so Argo CD has never needed to connect to it. Nobody took the measurement. 'Unknown' isn't a failure and it isn't a success. It's Argo CD being honest that it hasn't looked. A broken registration can sit there looking harmless for months — until the day someone deploys to it."
+> "Because no Application points at this cluster, so Argo CD has never needed to connect to it. Nobody took the measurement. 'Unknown' isn't a failure and it isn't a success. It's Argo CD being honest that it hasn't looked. You saw the same thing with your *good* cluster after Exercise 2. A broken registration can sit there looking harmless for months — until the day someone deploys to it."
 
 **Do:**
 
@@ -603,7 +689,7 @@ argocd cluster list
 reset-lab.sh CP-lab-03 --verify-only --local
 ```
 
-**Expect** (verified — this passes on the participant's own Lab 2 work, which proves their work equals the next lab's starting state):
+**Expect** (verified — this passes on the participant's own Lab 2 work after the E5 cleanup, which proves their work matches the objects the next lab starts from):
 
 ```text
 ==> Verification for CP-lab-03
@@ -615,12 +701,15 @@ reset-lab.sh CP-lab-03 --verify-only --local
   PASS  Secret in-cluster present
   PASS  Secret repo-storefront-gitops present
   PASS  Secret cluster-workload present
+  PASS  Repository and cluster Secrets are exactly: in-cluster, repo-storefront-gitops, cluster-workload
   PASS  workload namespace storefront-prod present
   PASS  workload SA argocd-manager present
   PASS  workload RoleBinding argocd-deployer (storefront-prod) present
 
 PASS CP-lab-03 is in the expected state.
 ```
+
+If a broken E5 Secret is still present, the "exactly" row FAILs — send the participant back to E5 step 5. The verifier does not compare project destinations or Git history (see the note in Section 5).
 
 | # | Criterion | Pass looks like |
 |---|---|---|
@@ -656,9 +745,11 @@ argocd cluster add k3d-workload -y
 
 **Wow moment — and a warning:**
 
-> "Read the four lines *before* the failure. The command failed — but only after it created a cluster-wide ServiceAccount, a ClusterRole with broad permissions, a binding, and a long-lived token on the workload cluster. A failed command left a privileged credential behind. That's why we register declaratively: you can see exactly what you created."
+> "Read the four lines *before* the failure. The command failed — but only after it created a cluster-wide ServiceAccount, a ClusterRole with every verb on every resource, a binding, and a long-lived token on the workload cluster. A failed command left a privileged credential behind. That's why we register declaratively: you can see exactly what you created."
 
-**Clean up immediately** (verified; a reset does **not** remove these):
+Verified size of the leftover: the ClusterRole's rules are `["*"] ["*"] ["*"]`, and `kubectl --context k3d-workload auth can-i delete namespaces --as=system:serviceaccount:kube-system:argocd-manager` answers `yes`.
+
+**Clean up immediately** (verified; the participant guide shows the same four commands, and `reset-lab.sh` now also removes these on every reset):
 
 ```bash
 kubectl --context k3d-workload delete clusterrolebinding argocd-manager-role-binding
@@ -666,6 +757,8 @@ kubectl --context k3d-workload delete clusterrole argocd-manager-role
 kubectl --context k3d-workload -n kube-system delete secret argocd-manager-long-lived-token
 kubectl --context k3d-workload -n kube-system delete serviceaccount argocd-manager
 ```
+
+The E2 identity in `argocd-access` is untouched (verified).
 
 ### Option B — a Gitea webhook
 
@@ -684,7 +777,7 @@ argocd app get storefront-dev --refresh
 argocd cluster list
 ```
 
-**Expect** (verified):
+**Expect** (verified, 5 s after the patch):
 
 ```text
 Sync Status:        Unknown
@@ -700,26 +793,36 @@ https://k3d-workload-server-0:6443 (5 namespaces)  workload    v1.35.8  Successf
 https://kubernetes.default.svc                     in-cluster  v1.35.8  Successful
 ```
 
+**Expect** (verified, `argocd cluster list` about a minute later):
+
+```text
+SERVER                                             NAME        VERSION  STATUS      MESSAGE
+https://k3d-workload-server-0:6443 (5 namespaces)  workload    v1.35.8  Failed      failed to get server version: failed to get server version: the server has asked for the client to provide credentials
+https://kubernetes.default.svc                     in-cluster  v1.35.8  Successful
+```
+
 **Say — three observations, in this order:**
 
 1. "Sync is `Unknown`. Argo CD can't read live state, so it refuses to guess."
-2. "Health still says `Healthy`. That's the last value it saw — a stale reading, not a fresh one."
-3. "And look at the cluster list: still `Successful`. That's a measurement from *before* we broke it."
+2. "Health says `Healthy` — a minute ago it said `Missing`, and nothing got deployed. With no live view, that badge is not a measurement."
+3. "And look at the cluster list: still `Successful`. That's a reading from *before* we broke it. Give it a minute and it turns `Failed`."
 
 **Wow moment:**
 
 > "`Unknown` was never a statement about the app. It was a statement about Argo CD's eyesight. And 'the server has asked for the client to provide credentials' is Kubernetes' polite way of saying 401 — I don't know who you are. Remember that sentence. You'll meet it again on Day 2 with nobody telling you it's coming."
 
-**Restore — faster than a reset** (verified; back to `OutOfSync`/`Missing` within seconds):
+**Restore — faster than a reset** (verified; no field-ownership conflict with the earlier `kubectl patch`, and back to `OutOfSync`/`Missing` within 5 s; the annotation-name check prints nothing afterwards):
 
 ```bash
 cd ~/platform-config
 TOKEN="$(kubectl --context k3d-workload -n argocd-access get secret argocd-manager-token -o jsonpath='{.data.token}' | base64 -d)"
 CA="$(kubectl --context k3d-workload -n argocd-access get secret argocd-manager-token -o jsonpath='{.data.ca\.crt}')"
-sed -e "s|<TOKEN>|${TOKEN}|" -e "s|<CA_DATA>|${CA}|" clusters/workload.secret.template.yaml | kubectl --context k3d-mgmt apply -f -
+sed -e "s|<TOKEN>|${TOKEN}|" -e "s|<CA_DATA>|${CA}|" clusters/workload.secret.template.yaml | kubectl --context k3d-mgmt apply --server-side -f -
 unset TOKEN CA
 argocd app get storefront-dev --refresh | grep -E "Sync Status|Health Status"
 ```
+
+The guide's slower alternative, `reset-lab.sh CP-lab-03 --local`, was also verified from this broken state: it restores `OutOfSync`/`Missing`, and it replaces the participant's `platform-config` commit with the checkpoint's.
 
 ---
 
@@ -727,8 +830,9 @@ argocd app get storefront-dev --refresh | grep -E "Sync Status|Health Status"
 
 1. **"What is 'registering a cluster', really?"** — Writing a labeled Secret in the `argocd` namespace.
 2. **"Where does the ServiceAccount live, and why?"** — On the workload cluster, because it's the identity Argo CD becomes *there*.
-3. **"Name three messages that each point at a different field."** — "repository not found" (URL path), "no such host" (hostname), "provide credentials" (token).
-4. **"Why was `OutOfSync` + `Missing` good news?"** — It proves repo access, rendering, cluster access, and comparison all work.
+3. **"Why did your good cluster say `Unknown` after Exercise 2?"** — Argo CD tests a cluster only when an Application uses it; nobody had checked yet.
+4. **"Name three messages that each point at a different field."** — "repository not found" (URL path), "no such host" (hostname), "provide credentials" (token).
+5. **"Why was `OutOfSync` + `Missing` good news?"** — It proves repo access, rendering, cluster access, and comparison all work.
 
 ### Key takeaways — say them out loud
 
@@ -738,7 +842,7 @@ argocd app get storefront-dev --refresh | grep -E "Sync Status|Health Status"
 
 > "A credential is only valid from the place that will use it. `127.0.0.1` in a kubeconfig is the most-copied bug in GitOps."
 
-> "`Unknown` does not mean broken. It means Argo CD cannot see — and you should go find out why it went blind."
+> "`Unknown` does not mean broken. It means Argo CD cannot see — or has not looked yet — and you should go find out which."
 
 > "The AppProject is a fence you build before you need it."
 

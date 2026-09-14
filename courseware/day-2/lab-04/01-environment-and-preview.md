@@ -49,11 +49,11 @@ If any row says **FAIL**, run `reset-lab.sh CP-lab-04 --local` (no `--verify-onl
 
 > **New since Day 1: `course-repo-creds`.** This is a **credential template** (a `repo-creds` Secret). It holds one username and password for *every* repository whose address starts with `http://lab-gitea:3000/course/`. Today's factory reads more than one course repository, so one shared key is simpler than one Secret per repository. ([Session 3 · Module 2](../../day-1/session-03/02-onboarding-repos-and-clusters.md) introduced this Secret type.)
 
-**▶ Do this now — confirm the starting picture.** The Applications list should be **empty of any `storefront` Application** and have no `platform-root` yet — a clean slate you are about to fill with a factory.
+**▶ Do this now — confirm the starting picture.** Open **Applications** in the UI. The page should be **completely empty** — no `storefront` Application and no `platform-root` yet. That is the clean slate you are about to fill with a factory.
 
-![Applications list empty of storefront apps at the start of Lab 4 (v3.5.2)](../../assets/screenshots/day-2/lab-04-01-env-check.png)
+![Applications page showing "No applications available to you just yet" at the start of Lab 4 (v3.5.2)](../../assets/screenshots/day-2/lab-04-01-env-check.png)
 
-*Figure SS-L4-01 — At `CP-lab-04`: no `storefront-*` Applications, no `platform-root`. The `storefront` and `platform` projects already exist (Settings → Projects).*
+*Figure SS-L4-01 — At `CP-lab-04` the Applications page is empty: "No applications available to you just yet." There are no `storefront-*` Applications and no `platform-root`. The `storefront` and `platform` projects already exist (you can see them under **Settings → Projects**).*
 
 <!-- CAPTURE-SPEC: SS-L4-01 — Applications list, environment check. State: CP-lab-04. Highlight: clean list, no storefront-*/platform-root tiles. Argo CD v3.5.2. -->
 
@@ -86,9 +86,11 @@ in-cluster         management   <none>
 
 **🔍 Notice:** the **workload** cluster is labelled `cluster-role=workload`; the **management** cluster is `cluster-role=management`. A cluster generator with `matchLabels: {cluster-role: workload}` matches **exactly one** cluster — the workload one — and deliberately excludes the management cluster. That is how you keep application workloads off the control plane.
 
-![Cluster detail for the workload cluster showing its labels (v3.5.2)](../../assets/screenshots/day-2/lab-04-02-cluster-labels.png)
+**▶ Optional — see the same labels in the UI:** **Settings → Clusters**, then click the `workload` row (server `https://k3d-workload-server-0:6443`).
 
-*Figure SS-L4-02 — The `workload` cluster's labels `cluster-role: workload` and `region: lab` — the data the cluster generator selects on.*
+![Cluster detail page for the workload cluster showing its labels (v3.5.2)](../../assets/screenshots/day-2/lab-04-02-cluster-labels.png)
+
+*Figure SS-L4-02 — The `workload` cluster's detail page. In the **GENERAL** box, **LABELS** reads `cluster-role=workload region=lab` — the data the cluster generator selects on. **APPLICATIONS** is `0` because nothing has been generated yet.*
 
 <!-- CAPTURE-SPEC: SS-L4-02 — Cluster detail, labels. State: CP-lab-04, Settings → Clusters → workload. Highlight: cluster-role=workload, region=lab. Argo CD v3.5.2. -->
 

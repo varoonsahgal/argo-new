@@ -31,27 +31,27 @@
    ```bash
    kubectl --context k3d-workload -n storefront-dev scale deploy/storefront --replicas=3
    ```
-2. In the UI, refresh `storefront-dev` and read both badges. Open the **diff**.
-3. Wait through a reconciliation interval (this environment reconciles every **60 seconds**). Watch whether Argo CD does anything.
+2. In the UI, open `storefront-dev` and read both badges. Click **Diff**, then tick **Compact diff** so the panel shows only the lines that differ (the full view starts at the top of the manifest, far above the changed field).
+3. Wait through a reconciliation interval (this environment checks Git every **60 seconds**). Watch whether Argo CD does anything about the extra replicas.
 
 ![storefront-dev Deployment OutOfSync after a manual scale (v3.5.2)](../../assets/screenshots/day-1/lab-03-04-live-drift.png)
 
 *Figure SS-L3-04 — After E3: the Deployment is `OutOfSync` (live replicas ≠ Git) but still `Healthy`.*
 
-![Diff showing spec.replicas live 3 vs desired 1 (v3.5.2)](../../assets/screenshots/day-1/lab-03-05-drift-diff.png)
+![Diff with Compact diff ticked, showing replicas live 3 vs desired 1 (v3.5.2)](../../assets/screenshots/day-1/lab-03-05-drift-diff.png)
 
-*Figure SS-L3-05 — The diff: live `spec.replicas: 3` vs desired `1` — the exact field Argo CD sees as drift; everything else matches.*
+*Figure SS-L3-05 — **Diff** with **Compact diff** ticked: the Deployment's live `replicas: 3` (left) against the desired `replicas: 1` (right). That one field is all Argo CD sees as drift.*
 
-**🔍 Notice:** the app header flips to `OutOfSync`, but health stays **`Healthy`** — three replicas is a working app, just not the *desired* one. Nothing changes over the next minute: manual sync reports drift, it does not correct it.
+**🔍 Notice:** the app header shows `OutOfSync` within a second or two. Argo CD keeps a live watch on every object it manages, so a hand edit is noticed almost at once; the 60-second timer is for checking *Git* for new commits. Health may read `Progressing` for a few seconds while the two extra Pods start, then settles on **`Healthy`**: three replicas is a working app, just not the *desired* one. Nothing changes over the next minute: manual sync reports drift, it does not correct it.
 
-<!-- CAPTURE-SPEC: SS-L3-04/05 — Tree + diff after drift. State: after scaling replicas=3, Refresh. Highlight: Deployment OutOfSync, health Healthy; diff spec.replicas 1 vs 3. Argo CD v3.5.2. -->
+<!-- CAPTURE-SPEC: SS-L3-04/05 — Tree + diff after drift. State: after scaling replicas=3. Highlight: Deployment OutOfSync, health Healthy; Diff with Compact diff ticked, replicas 3 vs 1. Argo CD v3.5.2. -->
 
 **Success criterion:**
 - `argocd app get storefront-dev` shows **`OutOfSync`** but **`Healthy`**, and *stays* that way across at least one 60-second interval.
 - You can state in one sentence why the health axis did **not** move.
 
 **Hints:**
-- *Hint 1:* If the badge still says `Synced`, click **Refresh** — drift is *discovered* on comparison, not the instant you type.
+- *Hint 1:* The badge normally changes within a second or two. If it still says `Synced`, click **Refresh**, which makes Argo CD compare again right now.
 - *Hint 2:* If you see no live Pods, you scaled the wrong context. Confirm with `kubectl --context k3d-workload -n storefront-dev get deploy storefront`.
 
 ### ✅ What you should take away from E3
@@ -83,20 +83,22 @@
    ```bash
    kubectl --context k3d-mgmt -n argocd apply -f platform-config/applications/storefront-dev.yaml
    ```
-3. Repeat the drift (`kubectl … scale … --replicas=3`). **▶ Predict how long** until it reverts, then watch. Self-heal re-applies after a short debounce (default **5 seconds**) once the next comparison discovers the drift — so expect the revert within roughly one 60-second interval, sooner if you **Refresh**.
-4. Try the edit a second time. Watch it be undone again. State the rule in your own words.
+3. Repeat the drift (`kubectl … scale … --replicas=3`). **▶ Predict how long** until it reverts — think back to how quickly E3's scale showed up as `OutOfSync` — then watch `kubectl --context k3d-workload -n storefront-dev get deploy storefront`.
+4. Try the edit a second time. Watch it be undone again. Then click **Sync Status** in the application's toolbar to see who started the sync that undid it. State the rule in your own words.
 
 **Then protect one resource from future pruning.** In the chart templates, add the annotation `argocd.argoproj.io/sync-options: Prune=false` to **one** resource. Render with `helm template` to confirm it appears, commit, and push. Write one sentence explaining *why* you would protect a specific resource even though app-wide prune is already off.
 
-![Sync policy: automated + self-heal on, prune off (v3.5.2)](../../assets/screenshots/day-1/lab-03-06-auto-sync-enabled.png)
+![Details, Summary tab, SYNC POLICY: auto-sync and self heal ticked, prune resources not ticked (v3.5.2)](../../assets/screenshots/day-1/lab-03-06-auto-sync-enabled.png)
 
-*Figure SS-L3-06 — After E4: automated sync and self-heal are on; prune is off, on purpose.*
+*Figure SS-L3-06 — After E4: `storefront-dev` → **Details** → **Summary** → **SYNC POLICY**. **ENABLE AUTO-SYNC** and **SELF HEAL** are ticked; **PRUNE RESOURCES** is not, on purpose.*
 
-![Operation status: sync initiated by the automated policy after drift (v3.5.2)](../../assets/screenshots/day-1/lab-03-07-self-heal-evidence.png)
+![Sync Status panel: initiated by automated sync policy after drift (v3.5.2)](../../assets/screenshots/day-1/lab-03-07-self-heal-evidence.png)
 
-*Figure SS-L3-07 — After re-introducing drift: the sync that reverted it was **initiated by the automated sync policy**, not by you.*
+*Figure SS-L3-07 — After re-introducing drift, the **Sync Status** panel: **INITIATED BY** reads **automated sync policy**, not you. **RESULT** lists only the Deployment, the one object that drifted.*
 
-<!-- CAPTURE-SPEC: SS-L3-06/07 — Sync policy + operation status. State: after E4 automated policy + drift. Highlight: Automated+Self Heal on, Prune off; sync "initiated by automated sync policy"; replicas restored to 1. Argo CD v3.5.2. -->
+**🔍 Notice:** the revert takes about a second, not a minute. Argo CD watches the live objects it manages, so it notices your scale at once, and self-heal puts Git's value back right away. The 60-second interval is how often Argo CD checks **Git** for new commits; it has nothing to do with how fast self-heal answers a hand edit. Self-heal re-applied only the object that drifted: the migration hook did not run again.
+
+<!-- CAPTURE-SPEC: SS-L3-06/07 — SYNC POLICY box + Sync Status panel. State: after E4's apply and a reverted scale, before the Prune=false commit. Highlight: ENABLE AUTO-SYNC and SELF HEAL ticked, PRUNE RESOURCES unticked; INITIATED BY automated sync policy. Argo CD v3.5.2. -->
 
 **Success criterion:**
 - After you scale to `3`, the Deployment returns to **1** on its own, attributed to the **automated policy**.
@@ -105,12 +107,12 @@
 
 **Hints:**
 - *Hint 1:* The two fields live under `spec.syncPolicy.automated` — one re-applies drift, one deletes what left Git.
-- *Hint 2:* If self-heal seems not to fire, click **Refresh** — the debounce starts *after* the comparison discovers drift, and the comparison is on the 60-second loop.
+- *Hint 2:* If self-heal seems not to fire, check that your change reached Argo CD: `argocd app get storefront-dev | grep "Sync Policy"` should print `Sync Policy:        Automated`. If it prints `Manual`, you committed the file but did not apply it with `kubectl`.
 - *Hint 3:* A good reason for per-resource `Prune=false` is defense-in-depth — it keeps that resource safe even if someone enables app-wide prune later.
 
 **Debrief — a decision, not a rule.** You have watched self-heal undo a manual edit twice. Work this scenario:
 
-> *It is 2 a.m. Production needs **10 replicas right now**, and self-heal is on. You scale — and 30 seconds later it snaps back to 1. What do you do?*
+> *It is 2 a.m. Production needs **10 replicas right now**, and self-heal is on. You scale — and a second later it snaps back to 1. What do you do?*
 
 Write your answer before reading on. The wrong answer is to keep scaling and fight the loop. Two are defensible: **disable automated sync on that one Application, stabilize, then commit the real number** — or **commit `replicas: 10` first and let the sync carry it.** The point is *why*: **Git wins because a human turned on a switch that says Git wins.** Self-heal is a policy about who wins ties, not a safety feature — naming it that way lets you make the right call at 2 a.m. instead of scaling five times.
 

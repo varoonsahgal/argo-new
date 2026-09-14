@@ -201,6 +201,7 @@ vendor_assets() {
     "${argocd_img}"
     "${REDIS_IMAGE_REPO}:${REDIS_IMAGE_TAG}"
     "${PODINFO_IMAGE}"
+    "${PODINFO_PREV_IMAGE}"
     "${BUSYBOX_IMAGE}"
     "${GITEA_IMAGE}"
   )
@@ -230,7 +231,9 @@ import_images() {
   for img in "quay.io/argoproj/argocd:${ARGOCD_VERSION}" "${REDIS_IMAGE_REPO}:${REDIS_IMAGE_TAG}" "${PODINFO_IMAGE}"; do
     import_one "${img}" "${MGMT_CLUSTER}"
   done
-  for img in "${PODINFO_IMAGE}" "${BUSYBOX_IMAGE}"; do
+  # PODINFO_PREV_IMAGE: storefront dev/staging start on it on Day 1 (Lab 3 E2
+  # promotes it to PODINFO_IMAGE).
+  for img in "${PODINFO_IMAGE}" "${PODINFO_PREV_IMAGE}" "${BUSYBOX_IMAGE}"; do
     import_one "${img}" "${WORKLOAD_CLUSTER}"
   done
   ok "image import complete"

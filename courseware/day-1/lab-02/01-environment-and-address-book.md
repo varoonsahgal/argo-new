@@ -87,7 +87,9 @@ git config user.email "student@lab.local"
 git config user.name "Student"
 ```
 
-It holds the templates and skeletons you will fill in:
+> **If `git clone` says `fatal: destination path 'platform-config' already exists`:** you cloned it on an earlier attempt, so you already have the folder. Run `cd ~/platform-config` and the two `git config` lines. If you ran `reset-lab.sh` since then, the reset has already put that copy back to the starting files.
+
+It holds the templates and skeletons you will fill in (other files omitted):
 
 ```text
 platform-config/
@@ -148,15 +150,21 @@ in-cluster   Opaque   3      2d
 cat ~/platform-config/repositories/storefront-gitops.secret.template.yaml
 ```
 
+**What you see.** The file starts with a few `#` comment lines, left out below. The `# <--` notes on the right are added by this guide; they are not in the file.
+
 ```yaml
+# ... (comment header)
+apiVersion: v1
+kind: Secret
 metadata:
   name: repo-storefront-gitops
   namespace: argocd
   labels:
     argocd.argoproj.io/secret-type: repository   # <-- this label makes it a repository connection
+type: Opaque
 stringData:
   type: git
-  url: http://lab-gitea:3000/course/storefront-gitops.git   # in-network Gitea address
+  url: http://lab-gitea:3000/course/storefront-gitops.git   # <-- in-network Gitea address
   username: student
   password: <PASSWORD>                            # <-- the ONLY placeholder; injected in E1
 ```
@@ -167,7 +175,12 @@ stringData:
 cat ~/platform-config/clusters/workload.secret.template.yaml
 ```
 
+**What you see** (comment header left out again; `# <--` notes added by this guide):
+
 ```yaml
+# ... (comment header)
+apiVersion: v1
+kind: Secret
 metadata:
   name: cluster-workload
   namespace: argocd
@@ -175,13 +188,22 @@ metadata:
     argocd.argoproj.io/secret-type: cluster       # <-- this label makes it a cluster registration
     cluster-role: workload
     region: lab
+type: Opaque
 stringData:
   name: workload
   server: https://k3d-workload-server-0:6443      # <-- in-network name, NOT localhost
+  # namespaces + clusterResources:false scope Argo CD to only these namespaces
+  # and forbid cluster-scoped writes (least privilege).
   namespaces: storefront-dev,storefront-staging,storefront-prod,team-a,platform-system
   clusterResources: "false"                        # <-- forbid cluster-scoped WRITES
   config: |
-    { "bearerToken": "<TOKEN>", "tlsClientConfig": { "insecure": false, "caData": "<CA_DATA>" } }
+    {
+      "bearerToken": "<TOKEN>",
+      "tlsClientConfig": {
+        "insecure": false,
+        "caData": "<CA_DATA>"
+      }
+    }
 ```
 
 **Two blanks in the cluster template, in plain words:**

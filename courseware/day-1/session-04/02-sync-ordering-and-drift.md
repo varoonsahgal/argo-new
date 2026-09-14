@@ -57,19 +57,25 @@ kind: Job
 
 ## 3. Drift and self-heal
 
-Drift is not *detected* the instant you type — it is *discovered* on the next comparison. Here is the difference self-heal makes:
+Argo CD does not *block* a change to the cluster — your edit goes through, and Argo CD *discovers* the difference afterwards by comparing live state with Git. How quickly depends on what changed:
+
+- **A hand edit to something Argo CD manages** (`kubectl scale`, `kubectl edit`): the application controller watches those objects, so it compares again almost at once. The app shows `OutOfSync` within a second or two — no timer, no **Refresh** needed.
+- **A new commit in Git:** Argo CD checks Git on a timer (`timeout.reconciliation`, **60 seconds** in this course) unless a webhook or a **Refresh** tells it sooner.
+
+Here is the difference self-heal makes to a hand edit:
 
 ```text
  SELF-HEAL OFF                                  SELF-HEAL ON
  ─────────────                                  ────────────
  t0  you: kubectl scale --replicas=5            t0  you: kubectl scale --replicas=5
- t1  next compare → OutOfSync (Healthy)         t1  next compare → OutOfSync (Healthy)
+ t1  seconds later: compare → OutOfSync         t1  seconds later: compare → OutOfSync
+     (Healthy)                                      (Healthy)
  t2  ...stays OutOfSync indefinitely            t2  controller RE-APPLIES desired state
      (Argo CD reports drift, changes nothing)   t3  back to Synced; your change is GONE
 ```
 
 - **With self-heal off**, scaling live replicas 1→5 makes only **sync** change (→ `OutOfSync`); it *stays* there, while **health** stays `Healthy` (five replicas of a working app still work). This is the cleanest proof that sync and health are independent axes — you will run exactly this in Lab 3.
-- **Drift is discovered, not detected.** There is a window between your edit and the next comparison. Argo CD is comparison-on-a-schedule, not an admission controller blocking your change.
+- **Drift is discovered, not prevented.** Argo CD is not an admission controller blocking your change: the edit succeeds, and for a short window the cluster really is different from Git. That window is seconds for a hand edit to a resource Argo CD manages, and up to one Git check (60 s here) for a new commit.
 - **Self-heal does not block your edit — it outlives it.** Your `kubectl scale` *succeeds*; the next reconciliation undoes it. During an incident this feels like the system fighting you. The escape hatch is *not* to keep re-editing — it is to disable automated sync on that one Application, stabilize, then commit.
 
 ---
@@ -113,7 +119,7 @@ Set per-Application (`spec.syncPolicy`) or per-resource (`argocd.argoproj.io/syn
 ## 6. Key takeaways
 
 - **A sync is ordered by phase → wave → kind → name.** PreSync hooks run first; waves build low-to-high and tear down high-to-low; Argo CD waits ~2s and for Healthy between waves — and a resource with no health check makes waves ineffective.
-- **Drift is discovered on the next comparison, not detected instantly.** With self-heal off, drift shows as `OutOfSync` + `Healthy` and *stays*; with self-heal on, it is reverted.
+- **Drift is discovered after it happens, not blocked.** A hand edit to a managed resource shows up within seconds; a new Git commit within one Git check (60 s here). With self-heal off, drift shows as `OutOfSync` + `Healthy` and *stays*; with self-heal on, it is reverted.
 - **Self-heal argues (reversible); prune deletes (not).** Turn self-heal on early, prune on late.
 
 **→ Next:** [03 — Promotion and recovery](03-promotion-and-recovery.md)

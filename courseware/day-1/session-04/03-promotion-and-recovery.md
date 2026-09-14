@@ -34,12 +34,12 @@ Promotion under GitOps is **moving a version pin from one environment's config i
 
 ```text
    dev/values.yaml            staging/values.yaml          prod/  (config.yaml)
-   image.tag: 6.16.0   ──▶    image.tag: 6.16.0    ──▶     targetRevision: storefront-1.0.0
+   image.tag: 6.15.0   ──▶    image.tag: 6.15.0    ──▶     targetRevision: storefront-1.0.0
    (tracks main, moves         (promoted after a week        (pinned to an IMMUTABLE Git TAG:
     freely in dev)              of clean dev soak)             prod never tracks a moving branch)
 
-   PROMOTION = a one-line diff:   -  image.tag: 6.15.0
-                                  +  image.tag: 6.16.0
+   PROMOTION = a one-line diff:   -  image.tag: 6.14.1
+                                  +  image.tag: 6.15.0
 ```
 
 - **The smallest promotion is a one-line diff** — write the tag `dev` has proven into `staging/values.yaml`.

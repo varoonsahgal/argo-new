@@ -58,7 +58,8 @@
 | `platform-root` is `Healthy` but a workload is broken | Root health answers "did I apply the child *object*?", not "is the child healthy?" | Open the **child** directly and read *its* status. Never diagnose App-of-Apps from the root alone |
 | You removed a generator input and the app **vanished** | `applicationsSync` permits deletion (default `sync` can delete) | Set `applicationsSync: create-update` **before** changing inputs |
 | Preview shows more apps than expected | Selector/glob matches more than intended — a blast-radius surprise caught for free | Do **not** apply; narrow until preview matches your prediction |
-| Generated names contain `TODO` | A skeleton TODO is unfilled | Finish every TODO; re-preview until none appears |
+| Preview prints only the header row (zero Applications), with no error | The cluster selector matches no cluster — for example, the skeleton's `cluster-role: "TODO"` is still there | Set the selector to the label value you read in Module 1; re-preview and count |
+| Preview rows show `TODO` (for example, three rows all named `argocd/TODO`) | The selector works, but other skeleton TODOs are unfilled | Finish every TODO; re-preview until no `TODO` appears in any column |
 
 > **Why `project` is hard-coded and never templated.** If a generator input could choose the project, anyone who can edit that input could move an Application into a more-privileged project — a privilege-escalation path. Keep `project: storefront` fixed. Governance-level protection is Lab 5's subject.
 

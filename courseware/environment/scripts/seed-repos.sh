@@ -13,6 +13,17 @@
 # created by bootstrap-vm.sh. Idempotent: safe to re-run.
 set -euo pipefail
 
+# --local targets the build-machine sandbox, the same flag reset-lab.sh takes.
+# It must be read before sourcing common.sh, which resolves paths from it.
+: "${COURSE_LOCAL:=0}"
+for arg in "$@"; do
+  case "${arg}" in
+    --local) COURSE_LOCAL=1 ;;
+    -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  esac
+done
+export COURSE_LOCAL
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${SCRIPT_DIR}/lib/common.sh"
@@ -139,9 +150,12 @@ seed_one() {
   # Release tag pinned by content (blueprint 8.7): storefront-gitops
   # envs/prod/config.yaml sets targetRevision: storefront-1.0.0. Without this tag
   # storefront-prod-workload shows ComparisonError "unable to resolve
-  # 'storefront-1.0.0' to a commit SHA" at CP-lab-05 and later. The repo has no
-  # checkpoint overlays, so cp-baseline is the known-good 1.0.0 chart. The local
-  # mirror carries the tag, so every reset-lab.sh re-pushes it (--tags).
+  # 'storefront-1.0.0' to a commit SHA" at CP-lab-05 and later. cp-baseline is the
+  # known-good 1.0.0 chart. The repo's only checkpoint overlay (CP-lab-04) moves
+  # envs/dev and envs/staging from podinfo 6.14.1 to 6.15.0 (the Lab 3 promotion);
+  # the chart and envs/prod, the only files prod reads at this tag, are identical
+  # at every checkpoint, so prod still runs 6.15.0. The local mirror carries the
+  # tag, so every reset-lab.sh re-pushes it (--tags).
   if [ "${repo}" = "storefront-gitops" ]; then
     git -C "${work}" tag -f storefront-1.0.0 cp-baseline >/dev/null
   fi
