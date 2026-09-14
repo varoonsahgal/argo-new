@@ -9,6 +9,8 @@
 
 A sync is not one big `kubectl apply`. It is an **ordered** operation decided by four keys, checked in this exact priority: **phase → wave → kind → name.**
 
+> **Read each arrow as "then, only to break a tie."** [Module 1.5](01b-sync-order-phases-waves-kinds-names.md) defines all four words and has you predict, watch, and break the order in a real sync. This section is the summary.
+
 ```text
  PHASE:      PreSync                 │  Sync (ordered by wave)                     │  PostSync
              (hooks that must run    │                                             │  (hooks after
@@ -111,7 +113,7 @@ Set per-Application (`spec.syncPolicy`) or per-resource (`argocd.argoproj.io/syn
 <details>
 <summary>Show answer</summary>
 
-1. **`db-migration`** (PreSync — before everything). 2. **`app-config`** (Sync, wave −1). 3. **`api` Service** (wave 0; kind order puts Service before Deployment). 4. **`api` Deployment** (wave 0; name `api` before `web`). 5. **`web` Deployment** (wave 0). 6. **`smoke-test`** (PostSync — last). Keys are checked strictly: **phase → wave → kind → name.** Phase dominates even a wave −1 resource.
+1. **`db-migration`** (PreSync — before everything). 2. **`app-config`** (Sync, wave −1). 3. **`api` Service** (wave 0; kind order puts Service before Deployment). 4. **`api` Deployment** (wave 0; name lists `api` before `web`). 5. **`web` Deployment** (wave 0 — sent to the cluster at the same moment as `api`, because same-kind resources in one wave go together). 6. **`smoke-test`** (PostSync — last). Keys are checked strictly: **phase → wave → kind → name.** Phase dominates even a wave −1 resource.
 </details>
 
 ---

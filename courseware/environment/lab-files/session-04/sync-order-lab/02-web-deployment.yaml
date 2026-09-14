@@ -1,0 +1,24 @@
+# Session 4 · Module 1.5 practice resource.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      serviceAccountName: web
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: web
+          image: busybox:1.37.0
+          command: ["sh", "-c", "sleep 86400"]
+          envFrom:
+            - configMapRef:
+                name: app-settings

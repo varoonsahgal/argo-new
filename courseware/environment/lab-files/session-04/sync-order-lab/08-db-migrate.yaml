@@ -1,0 +1,16 @@
+# Session 4 · Module 1.5 practice resource.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: db-migrate
+          image: busybox:1.37.0
+          command: ["sh", "-c", "echo 'migrating database...'; sleep 10; echo 'migration complete'"]

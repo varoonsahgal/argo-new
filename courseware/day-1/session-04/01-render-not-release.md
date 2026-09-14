@@ -129,4 +129,4 @@ Picture it: you upgrade Argo CD on Monday, touch no chart and no values, and Tue
 - **Values resolve by a ladder:** parameter → valuesObject → valueFiles → chart default (highest first). Environment differences normally live in `valueFiles`.
 - **Helm's version is part of your desired state** — upgrading Argo CD can change rendered manifests with no Git change.
 
-**→ Next:** [02 — Sync ordering and drift](02-sync-ordering-and-drift.md)
+**→ Next:** [1.5 — The running order: phases, waves, kinds, and names](01b-sync-order-phases-waves-kinds-names.md)
