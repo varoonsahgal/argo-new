@@ -458,6 +458,11 @@ Before moving on, answer these in your own words:
 - **Registering a cluster = applying one labeled cluster Secret** with the in-network server address, the token, and the CA data. In the expected starting state, its status is `Unknown` because no Application uses it yet.
 - **After this module Argo CD holds the keys to read Git and reach the workload cluster** — the two ends of every deployment in the rest of the course.
 
+## An image to help you understand this:
+
+<img width="1024" height="1536" alt="Helper Image Sep 14, 2026, 03_01_45 PM" src="https://github.com/user-attachments/assets/1cbd6eeb-fbaf-4b44-8336-c0e7575a761b" />
+
+
 ## Appendix A — supplied credential helper
 
 **Run this setup once before E1.** Copy the entire block, including the final `PY` line. It creates only Python source code, with no real credentials, at the path used by both exercises. Running setup again replaces this exercise's helper script with the same supplied code.
