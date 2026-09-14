@@ -17,7 +17,8 @@
 #   2. refresh CoreDNS host records
 #   3. force-move main in every repo to cp-<name> from the local seed mirrors
 #   4. delete non-checkpoint ApplicationSets, then Applications (cascade, root
-#      before children, with a finalizer timeout)
+#      before children, with a finalizer timeout); CP-baseline also recreates
+#      hello-reconcile so Lab 1 starts at rollout revision 1 with one history entry
 #   5. re-apply the checkpoint's declarative bundle (Secrets rendered from creds)
 #   6. re-apply the workload-side RBAC state
 #   7. clean or recreate workload namespaces
@@ -283,6 +284,15 @@ step4_delete_nondesired() {
     in_list "${name}" "${DES_APPS}" && continue
     delete_app_cascade "${name}"
   done
+  # CP-baseline is Lab 1's start, and Lab 1 uses the Deployment's rollout history
+  # ("one revision: no new Pod started") and the sync history as evidence. Forcing
+  # Git back is not enough: a rehearsal's ReplicaSets and history entries survive
+  # a plain re-sync. Recreate hello-reconcile from scratch, as bootstrap does;
+  # step 5 re-applies it and step 9 syncs it (rollout revision 1, one entry).
+  if [ "${IDX}" -eq 0 ]; then
+    delete_app_cascade hello-reconcile
+    wait_for 90 "hello-reconcile workload removed" hello_workload_gone || true
+  fi
   # Projects a participant created in a later lab (team-a in Lab 5) belong to
   # that lab, not to an earlier checkpoint. `default` is built in and stays.
   for name in $(kmgmt -n "${ARGOCD_NAMESPACE}" get appproject \
@@ -293,7 +303,29 @@ step4_delete_nondesired() {
     kmgmt -n "${ARGOCD_NAMESPACE}" delete appproject "${name}" \
       --ignore-not-found >/dev/null 2>&1 || true
   done
-  ok "non-checkpoint AppSets/Applications/AppProjects removed"
+  # Onboarding Secrets (repository / repo-creds / cluster) that a later lab
+  # created, plus Lab 2's deliberately broken ones. Without this, resetting back
+  # to CP-lab-02 leaves storefront-gitops connected and the workload cluster
+  # registered with a dead token: the exact things Lab 2 asks participants to
+  # build. Applications are already gone, so no finalizer depends on them.
+  for name in $(kmgmt -n "${ARGOCD_NAMESPACE}" get secret \
+                  -l 'argocd.argoproj.io/secret-type in (repository,repo-creds,cluster)' \
+                  -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    in_list "${name}" "$(expected_onboarding_secrets)" && continue
+    log "deleting onboarding Secret ${name}"
+    kmgmt -n "${ARGOCD_NAMESPACE}" delete secret "${name}" \
+      --ignore-not-found >/dev/null 2>&1 || true
+  done
+  ok "non-checkpoint AppSets/Applications/AppProjects/onboarding Secrets removed"
+}
+
+# The repository, repo-creds, and cluster Secrets a checkpoint should contain.
+expected_onboarding_secrets() {
+  local keep="in-cluster"
+  [ "${IDX}" -ge 2 ] && keep="${keep} repo-storefront-gitops"
+  [ "${WORKLOAD_REGISTERED}" -eq 1 ] && keep="${keep} cluster-workload"
+  [ "${IDX}" -ge 3 ] && keep="${keep} course-repo-creds"
+  printf '%s' "${keep}"
 }
 
 step5_apply_bundle() {
@@ -432,6 +464,31 @@ vrow() {
 bool_pass() { if "$@" >/dev/null 2>&1; then echo PASS; else echo FAIL; fi; }
 bool_fail() { if "$@" >/dev/null 2>&1; then echo FAIL; else echo PASS; fi; }
 
+only_expected_onboarding_secrets() {
+  local name
+  for name in $(kmgmt -n "${ARGOCD_NAMESPACE}" get secret \
+                  -l 'argocd.argoproj.io/secret-type in (repository,repo-creds,cluster)' \
+                  -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    in_list "${name}" "$(expected_onboarding_secrets)" || return 1
+  done
+}
+
+hello_workload_gone() {
+  [ -z "$(kmgmt -n hello get deployment,replicaset \
+            -l app.kubernetes.io/name=hello-reconcile -o name 2>/dev/null)" ]
+}
+
+# Lab 1's starting Deployment: first rollout, and no Pod-template annotations
+# (Lab 1 has participants add the checksum/config annotation themselves).
+hello_fresh_rollout() {
+  local rev ann
+  rev="$(kmgmt -n hello get deployment hello-reconcile \
+    -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}' 2>/dev/null)"
+  ann="$(kmgmt -n hello get deployment hello-reconcile \
+    -o jsonpath='{.spec.template.metadata.annotations}' 2>/dev/null)"
+  [ "${rev}" = "1" ] && [ -z "${ann}" ]
+}
+
 app_healthy_synced() {
   local h s
   h="$(kmgmt -n "${ARGOCD_NAMESPACE}" get application "$1" -o jsonpath='{.status.health.status}' 2>/dev/null)"
@@ -454,6 +511,11 @@ verify_checkpoint() {
       vrow "Application ${name} present" "$(bool_pass app_exists_kc "${name}")"
     fi
   done
+
+  if [ "${IDX}" -eq 0 ]; then
+    vrow "Deployment hello-reconcile at rollout revision 1, no Pod-template annotations" \
+      "$(bool_pass hello_fresh_rollout)"
+  fi
 
   # Day 1 Applications that must be GONE from Day 2 onward.
   if [ "${IDX}" -ge 3 ]; then
@@ -494,6 +556,9 @@ verify_checkpoint() {
     vrow "Secret course-repo-creds present" \
       "$(bool_pass kmgmt -n "${ARGOCD_NAMESPACE}" get secret course-repo-creds)"
   fi
+  local want; want="$(expected_onboarding_secrets)"
+  vrow "Repository and cluster Secrets are exactly: ${want// /, }" \
+    "$(bool_pass only_expected_onboarding_secrets)"
 
   # Workload namespaces + RBAC.
   vrow "workload namespace storefront-prod present" \

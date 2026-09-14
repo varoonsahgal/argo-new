@@ -202,12 +202,17 @@ shots:
     app: argocd
     auth: admin
     route: /applications/hello-reconcile
-    state: "Diff view"
+    state: "Diff view (Diff button -> Manifest Diff tab), after the E2 Part 1 push and Refresh, before Sync"
     produced_by: "lab-01 E2"
-    fidelity: panel
+    # Without this click the shot is just the tree (identical to SS-L1-05).
+    actions:
+      - click: 'button:has(span.show-for-large:text-is("Diff"))'
+      - wait_for: ".sliding-panel--opened .application-resources-diff"
+      - wait_ms: 1500
+    fidelity: full
     highlight:
       intent: "changed message line"
-      selector: ".application-diff"
+      selector: ".sliding-panel--opened .application-resources-diff"
 
   - id: SS-L1-07
     guide: lab-01
@@ -217,10 +222,14 @@ shots:
     route: /applications/hello-reconcile
     state: "Sync panel open, before sync"
     produced_by: "lab-01 E2"
-    fidelity: panel
+    actions:
+      - click: 'button:has(span.show-for-large:text-is("Sync"))'
+      - wait_for: ".sliding-panel--opened .sliding-panel__body"
+      - wait_ms: 1000
+    fidelity: full
     highlight:
-      intent: "prune unchecked, dry-run option, resource list"
-      selector: ".application-sync-panel"
+      intent: "Synchronize button, Prune unchecked, resource list"
+      selector: ".sliding-panel--opened .sliding-panel__body"
 
   - id: SS-L1-08
     guide: lab-01
@@ -233,7 +242,7 @@ shots:
     fidelity: full
     highlight:
       intent: "last sync Succeeded and the new revision SHA"
-      selector: ".application-status-panel"
+      selector: '.application-status-panel__item:has-text("LAST SYNC")'
 
   - id: SS-L1-09
     guide: lab-01
@@ -242,11 +251,16 @@ shots:
     auth: admin
     route: /applications/hello-reconcile
     state: "Pod node, events tab"
-    produced_by: "lab-01 E4"
-    fidelity: panel
+    produced_by: "lab-01 E4 (shortly after the E2 Part 3 rollout)"
+    actions:
+      - click: ".application-resource-tree__node--pod"
+      - wait_for: ".sliding-panel--opened .tabs__nav"
+      - click: ".sliding-panel--opened .tabs__nav >> text=Events"
+      - wait_ms: 2000
+    fidelity: full
     highlight:
       intent: "event reasons"
-      selector: ".application-node-info"
+      selector: ".sliding-panel--opened .tabs__content"
 
   - id: SS-L1-10
     guide: lab-01
@@ -255,10 +269,14 @@ shots:
     auth: admin
     route: /applications/hello-reconcile
     state: "History and rollback panel"
-    produced_by: "after lab-01 E2"
-    fidelity: panel
+    produced_by: "after lab-01 E2 and stretch A"
+    actions:
+      - click: 'button:has(span.show-for-large:text-is("History and rollback"))'
+      - wait_for: ".application-deployment-history"
+      - wait_ms: 1000
+    fidelity: full
     highlight:
-      intent: "two revisions"
+      intent: "the lab's revisions, newest first"
       selector: ".application-deployment-history"
 
   - id: SS-L1-11

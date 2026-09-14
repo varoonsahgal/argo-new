@@ -115,7 +115,7 @@ git rev-parse HEAD
 
 ## 3. Step G — Sync, watch the rollout, and prove it
 
-**▶ Do this now — Refresh and read the diff (Window A / B).** Click **Refresh**, then **App Diff** (or `argocd app diff hello-reconcile`). **Expected** diff *(fingerprint depends on your message)*:
+**▶ Do this now — Refresh and read the diff (Window A / B).** Click **Refresh**, then **Diff** (or `argocd app diff hello-reconcile`). **Expected** diff *(fingerprint depends on your message)*:
 
 ```text
 ===== apps/Deployment hello/hello-reconcile ======
@@ -126,7 +126,13 @@ git rev-parse HEAD
 
 Now **only the Deployment** is `OutOfSync` (compare with your prediction). Explain to yourself why the ConfigMap is *not* in this diff — it already matched Git after Module 2's sync.
 
-**▶ Do this now — Sync and watch Window C.** Click **Sync**, leave **Prune** unchecked, confirm. Watch **Window C**:
+![Argo CD tree after the checksum commit and Refresh: Deployment OutOfSync, ConfigMap Synced (v3.5.2)](../../assets/screenshots/day-1/lab-01-11-deployment-outofsync-checksum.png)
+
+*Figure SS-L1-11 — After the checksum commit and a Refresh: the yellow `OutOfSync` icon is now on the **Deployment** node, while the ConfigMap node is green. The single ReplicaSet is still `rev:1`.*
+
+<!-- CAPTURE-SPEC: SS-L1-11 — Tree after the E2 Part 3 push and Refresh, before Sync. Highlight: OutOfSync on the Deployment node while the ConfigMap node is Synced. Fidelity: full page. -->
+
+**▶ Do this now — Sync and watch Window C.** Click **Sync**, leave **Prune** unchecked, and click **Synchronize**. Watch **Window C** *(your Pod names and ages will differ, and some lines can print twice)*:
 
 ```text
 hello-reconcile-67fc76f88b-jgw7c   0/1     Pending             0     0s
@@ -136,7 +142,13 @@ hello-reconcile-67fc76f88b-jgw7c   1/1     Running             0     2s
 hello-reconcile-5b66f8d98c-fzsm9   1/1     Terminating         0     3h23m
 ```
 
-**🔍 Notice the order:** the new Pod is `1/1` Ready **before** the old Pod starts terminating. That is a **rolling update** — at no moment did the app have zero running Pods. While the new Pod was starting, the app was `Synced` and **`Progressing`**, then settled on **`Healthy`**. (`Progressing` can vanish from the UI in a blink; Window C's line order is more reliable evidence.)
+**🔍 Notice the order:** the new Pod is `1/1` Ready **before** the old Pod starts terminating. That is a **rolling update** — at no moment did the app have zero running Pods. While the new Pod was starting, the app was `Synced` and **`Progressing`**, then settled on **`Healthy`**. (`Progressing` lasts only until the new Pod passes its readiness check — a few seconds — so it is easy to miss in the UI; Window C's line order is more reliable evidence.)
+
+![Argo CD tree after the checksum sync: Deployment rev:2 owning a new ReplicaSet with a Pod and the old ReplicaSet scaled to zero (v3.5.2)](../../assets/screenshots/day-1/lab-01-12-rollout-new-replicaset.png)
+
+*Figure SS-L1-12 — After the sync: the Deployment is now `rev:2` and owns **two** ReplicaSets. The new one (`rev:2`) owns the running Pod; the old one (`rev:1`) is scaled to zero and kept so the Deployment can roll back.*
+
+<!-- CAPTURE-SPEC: SS-L1-12 — Tree after the E2 Part 3 sync completes. Highlight: Deployment owns two ReplicaSets, the old one scaled to 0 and a new one with a running Pod. Fidelity: full page. -->
 
 **▶ Do this now — prove the change reached the running app (Window B).**
 

@@ -14,12 +14,15 @@
 **▶ Do this now — two views of the ConfigMap:**
 
 ```bash
-# Rendered from Git (what Argo CD would apply, at the current revision):
-argocd app manifests hello-reconcile --source git | sed -n '/kind: ConfigMap/,/^---/p'
+# Rendered from Git (what Argo CD would apply, at the current revision).
+# yq, a YAML query tool installed with the course tools, keeps only the ConfigMap:
+argocd app manifests hello-reconcile --source git | yq 'select(.kind == "ConfigMap")'
 
 # Live (what is actually in the cluster right now):
 kubectl --context k3d-mgmt -n hello get configmap hello-reconcile -o yaml
 ```
+
+**Sanity check:** the rendered ConfigMap starts with a `---` line and includes a `data:` block holding your current `PODINFO_UI_MESSAGE`. If `data:` is missing, you are not looking at the whole object — re-run the `yq` command exactly as printed.
 
 **Shape of a correct answer:** a short written comparison naming **at least three fields that appear only in the live object** (absent from rendered/Git), plus one sentence on why their presence is not drift. A complete answer also finds the **resource-tracking annotation** `argocd.argoproj.io/tracking-id` on the live object and says what it does (it marks the resource as one Argo CD owns).
 
@@ -56,7 +59,7 @@ Then answer in one or two sentences: **"If the UI were down, which surface would
 
 ![Argo CD Pod node events tab showing event reasons (v3.5.2)](../../assets/screenshots/day-1/lab-01-09-pod-events.png)
 
-*Figure SS-L1-09 — The Pod node's events tab in the interface.*
+*Figure SS-L1-09 — A Pod's **Events** tab, opened by clicking the Pod node in the resource tree. Each row is one Kubernetes event with its reason, message, count, and time.*
 
 <!-- CAPTURE-SPEC: SS-L1-09 — Pod node, events tab. State: shortly after E2 rollout, route /applications/hello-reconcile, Pod node selected, events tab. Highlight: event reasons (Scheduled, Pulled, Started). Fidelity: panel. -->
 
@@ -112,13 +115,13 @@ You have finished Lab 1 when **all** of these are true:
 
 > **Clearly optional — not required to complete the lab.**
 
-**Stretch A — prove the fix is permanent.** Change `message` to `"Hello from Git, revision three"` (nothing else), commit, push, and Refresh. **Predict first:** how many resources will the diff list this time, and will a new Pod start on sync? Then open **App Diff**, sync, and check Window C and `curl`. In one sentence, explain why this diff differs from your Module 2 diff.
+**Stretch A — prove the fix is permanent.** Change `message` to `"Hello from Git, revision three"` (nothing else), commit, push, and Refresh. **Predict first:** how many resources will the diff list this time, and will a new Pod start on sync? Then open **Diff**, sync, and check Window C and `curl`. In one sentence, explain why this diff differs from your Module 2 diff.
 
 **Stretch B — predict the health for `replicaCount: 0`.** Before changing anything, **write your prediction:** if you set `replicaCount: 0`, commit, push, and sync, what will the **sync status** and **health status** be? A Deployment scaled to zero has no Pods — is "zero Pods, exactly as requested" healthy, degraded, or something else? Then test it: set `replicaCount` to `0`, commit, push, Refresh, Sync, and observe. **Reset when done:** set it back to `1`, commit, push, sync.
 
 ![Argo CD history and rollback panel showing revisions (v3.5.2)](../../assets/screenshots/day-1/lab-01-10-history.png)
 
-*Figure SS-L1-10 — Deployment history with the revisions from this lab.*
+*Figure SS-L1-10 — Click **History and rollback** on the app page to see every sync of this lab, newest first: when it was deployed, who started it, and the commit SHA and message it deployed.*
 
 <!-- CAPTURE-SPEC: SS-L1-10 — History and rollback panel. State: after E2 (and the stretch), route /applications/hello-reconcile history panel. Highlight: two or more revisions with their SHAs. Fidelity: panel. -->
 
@@ -128,4 +131,4 @@ You have finished Lab 1 when **all** of these are true:
 
 You watched one change move from Git to a running workload, on the **management cluster** as a deliberate teaching shortcut. Production platforms avoid that. Next, **Guide 03 — Production-Oriented Configuration** shapes a real platform, and **Lab 2** has you register a *separate* workload cluster and connect a *private* repository (contrast with today's public-read one).
 
-**Before you move on:** no cleanup is required — your extra commits in `hello-reconcile` are harmless. Lab 2 begins with `reset-lab.sh CP-lab-02 --local` to hand you its exact starting state.
+**Before you move on:** no cleanup is required. Lab 2 begins with `reset-lab.sh CP-lab-02 --local`, which hands you its exact starting state. That reset **discards your Lab 1 commits**: it moves `hello-reconcile`'s `main` branch in Gitea back to the starting chart, resets your `~/hello-reconcile` clone to match, and syncs the app back to "revision one". If you want to keep a record of your checksum fix, copy `chart/templates/deployment.yaml` somewhere outside the clone first.

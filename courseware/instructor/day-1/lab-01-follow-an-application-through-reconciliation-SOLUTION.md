@@ -4,7 +4,7 @@
 > **Participant guide (now a modular arc):** [lab-01/README.md](../../day-1/lab-01/README.md)
 > **Exercise → module map:** E1 is in [module 01](../../day-1/lab-01/01-setup-and-dependencies.md); E2 Part 1 in [module 02](../../day-1/lab-01/02-commit-and-sync.md); E2 Parts 2–3 in [module 03](../../day-1/lab-01/03-why-the-app-didnt-change.md); E3, E4, and the stretch in [module 04](../../day-1/lab-01/04-three-views-and-wrap-up.md). Exercise IDs and answers below are unchanged.
 > **Timebox:** 45 minutes · **Scaffolding:** G1 (maximally guided)
-> **Verified:** 2026-09-13, end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`. Every output block below was captured from that run unless it is explicitly marked otherwise. Commit SHAs, Pod suffixes, and ages will differ on your machine. Exercise 2 was redesigned and re-verified end to end on the same sandbox later that day (Parts 1–3, stretch A, and the two Part 3 wrong turns), starting from a fresh `CP-lab-01` reset.
+> **Verified:** 2026-09-13, end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`. Every output block below was captured from that run unless it is explicitly marked otherwise. Commit SHAs, Pod suffixes, and ages will differ on your machine. Exercise 2 was redesigned and re-verified end to end on the same sandbox later that day (Parts 1–3, stretch A, and the two Part 3 wrong turns), starting from a fresh `CP-lab-01` reset. **Revalidated again on 2026-09-13 (evening)** after a `reset-lab.sh` fix: the whole participant path (Modules 01–04, stretches A and B) was re-run through the UI and CLI, the guide's output blocks now match v3.5.2, and figures SS-L1-02, -03, and -05 to -12 were re-captured at the steps they illustrate. Blocks in this file that changed in that pass use its SHAs (`9ec1d9c` baseline, `4bf9e96` Part 1, `f083e46` Part 3).
 
 ---
 
@@ -40,14 +40,16 @@ source ~/argo-lab-env.sh
 reset-lab.sh CP-lab-01 --verify-only --local
 ```
 
-**Expect** (verified; note the two extra "absent" rows that the guide's sample does not show — they are harmless):
+**Expect** (verified; identical to the guide's sample in Module 01):
 
 ```text
 ==> Verification for CP-baseline
   PASS  Application hello-reconcile Synced/Healthy
+  PASS  Deployment hello-reconcile at rollout revision 1, no Pod-template annotations
   PASS  Application team-a-guestbook absent
   PASS  AppProject team-a absent
   PASS  Secret in-cluster present
+  PASS  Repository and cluster Secrets are exactly: in-cluster
   PASS  workload namespace storefront-prod present
   PASS  workload SA argocd-manager absent (not registered)
 
@@ -73,16 +75,18 @@ grep -c 'annotations:' /tmp/hr-check/chart/templates/deployment.yaml; rm -rf /tm
 
 If this prints `1` or more, a rehearsal (possibly yours) left the Part 3 commit on `main`, and Part 1 will roll a Pod with nothing to diagnose. Run `reset-lab.sh CP-lab-01 --local`: it force-moves `main` back to the `cp-baseline` tag. Verified: after a rehearsal that added the annotation, the reset restored `deployment.yaml` to its baseline blob and the count returned to `0`.
 
-### 0.3 Know where the participant guide is out of step with v3.5.2
+**Rehearsals also leave rollout history behind — the reset now clears it.** Forcing Git back and re-syncing is not enough on its own: before the fix, a rehearsed sandbox reset to `CP-lab-01` still had the Deployment at rollout revision 4 with three ReplicaSets, and ten sync-history entries. Step E's `rollout history` then printed revisions 2–4 instead of `1`, which wrecks the "no new Pod ever started" evidence. `reset-lab.sh CP-lab-01` now cascade-deletes and recreates `hello-reconcile`, exactly as bootstrap creates it. Verified: afterwards there was one ReplicaSet at `rev:1`, `rollout history` printed only `1`, and `argocd app history` showed one entry. The verifier row `Deployment hello-reconcile at rollout revision 1, no Pod-template annotations` reported `FAIL` on the rehearsed state and `PASS` after the reset. So after rehearsing, always reset rather than only re-syncing.
 
-You do not need to fix the guide mid-class. You need to recognize these when a participant raises a hand.
+### 0.3 Know what still varies from the guide on a live VM
 
-| Where | What the guide prints | What actually happens | What to tell the room |
+The earlier mismatches (the pre-3.5 `argocd app get` sample, the `sed` command that dropped `data:`, the "App Diff" button label, and the SS-L1-06/-07/-09/-10 images that did not show their captions) were fixed in the 2026-09-13 revalidation. What still varies is harmless, but participants ask about it:
+
+| Where | What the guide prints | What participants may see | What to tell the room |
 |---|---|---|---|
-| Section 6.2, `argocd app get` sample | `SyncWinow: <none>`, no `URL:` line, no `Source:` block | v3.5.2 prints a `URL:` line, a `Source:` block, `SyncWindow: Sync Allowed`, and a MESSAGE column such as `configmap/hello-reconcile unchanged` | "Same facts, newer layout. Read the labels, not the positions." |
-| Exercise 3, `argocd app manifests … \| sed -n '/kind: ConfigMap/,/^---/p'` | The rendered ConfigMap | **Omits the `data:` block** — the one field participants need. Keys come out alphabetically, so `data:` appears *above* `kind:` and the `sed` range starts too late | Use `argocd app manifests hello-reconcile --source git \| yq 'select(.kind == "ConfigMap")'` |
-| Exercise 2, Figure SS-L1-06 | Captioned as the diff view | The image file is the resource tree (identical to SS-L1-05), not the diff panel. The caption itself ("exactly one changed line: the ConfigMap's message") is correct for Part 1 | Show the diff live, or use the CLI diff block printed under the figure. The capture needs redoing |
-| Exercise 2 Part 3 | Two capture specs, SS-L1-11 and SS-L1-12, with no image yet | Participants rely on the CLI and Window C output printed in the guide | Project your own tree after the Part 3 Refresh and after the sync |
+| Every `argocd app get` and Step E block | The revalidation run's SHAs (`9ec1d9c`, `4bf9e96`, `f083e46`) | Their own SHAs | "Match your SHA to your own `git rev-parse HEAD`, not to the page." |
+| Module 01, `argocd app get` MESSAGE column | `created` (the last sync created the resources) | `unchanged` if anyone clicked Sync after setup | "MESSAGE is the last sync's result, not the current comparison. Read STATUS." |
+| Module 03, Window C sample | New Pod `1/1` after 2 s | Anywhere from about 2 to 7 s (readiness probe), and some lines printed twice | "Read the order of the lines, not the ages." |
+| Module 03, `Progressing` | "lasts a few seconds" | Missed entirely in the browser | Point at Window C |
 
 ### 0.4 Arrange your projected screen
 
@@ -95,7 +99,7 @@ Three panes, exactly as participants will: Firefox on the Argo CD Applications p
 | Clock | Segment | Your job |
 |---|---|---|
 | 0:00–0:02 | Why this matters | Frame the thermostat idea; ask "what is the smallest thing that can go wrong?" |
-| 0:02–0:09 | Environment check + walkthrough (Sections 5–6) | Participants follow along; you narrate the three windows |
+| 0:02–0:09 | Environment check + walkthrough (Module 01, sections 1–4) | Participants follow along; you narrate the three windows |
 | 0:09–0:13 | E1 — dependency table | Silent individual work, then collect the "guess" numbers |
 | 0:13–0:28 | E2 — predict, commit, diagnose, fix | Collect Part 1 predictions *before* anyone pushes; run the Part 2 "who's lying?" moment with the whole room before anyone starts Part 3 |
 | 0:28–0:34 | E3 — desired vs rendered vs live | Pairs |
@@ -124,7 +128,7 @@ Take two or three answers, then:
 
 ---
 
-## 2. Environment check and guided walkthrough (Sections 5–6)
+## 2. Environment check and guided walkthrough (Module 01, sections 1–4)
 
 ### 2.1 Log in to the CLI and read the Application
 
@@ -152,14 +156,16 @@ Source:
   Path:             chart
 SyncWindow:         Sync Allowed
 Sync Policy:        Manual
-Sync Status:        Synced to main (ae0e479)
+Sync Status:        Synced to main (9ec1d9c)
 Health Status:      Healthy
 
 GROUP  KIND        NAMESPACE  NAME             STATUS  HEALTH   HOOK  MESSAGE
-       ConfigMap   hello      hello-reconcile  Synced                 configmap/hello-reconcile unchanged
-       Service     hello      hello-reconcile  Synced  Healthy        service/hello-reconcile unchanged
-apps   Deployment  hello      hello-reconcile  Synced  Healthy        deployment.apps/hello-reconcile unchanged
+       ConfigMap   hello      hello-reconcile  Synced                 configmap/hello-reconcile created
+       Service     hello      hello-reconcile  Synced  Healthy        service/hello-reconcile created
+apps   Deployment  hello      hello-reconcile  Synced  Healthy        deployment.apps/hello-reconcile created
 ```
+
+(The MESSAGE column reads `created` after bootstrap or a `CP-lab-01` reset. If anyone has clicked Sync since, it reads `unchanged`.)
 
 **Say:**
 
@@ -360,14 +366,16 @@ argocd app get hello-reconcile --refresh
 **Expect** (verified):
 
 ```text
-Sync Status:        OutOfSync from main (17cb57e)
+Sync Status:        OutOfSync from main (4bf9e96)
 Health Status:      Healthy
 
 GROUP  KIND        NAMESPACE  NAME             STATUS     HEALTH   HOOK  MESSAGE
-       ConfigMap   hello      hello-reconcile  OutOfSync                 configmap/hello-reconcile configured
-       Service     hello      hello-reconcile  Synced     Healthy        service/hello-reconcile unchanged
-apps   Deployment  hello      hello-reconcile  Synced     Healthy        deployment.apps/hello-reconcile unchanged
+       ConfigMap   hello      hello-reconcile  OutOfSync                 configmap/hello-reconcile created
+       Service     hello      hello-reconcile  Synced     Healthy        service/hello-reconcile created
+apps   Deployment  hello      hello-reconcile  Synced     Healthy        deployment.apps/hello-reconcile created
 ```
+
+(Without Refresh, the revalidation sandbox noticed the push after 40 seconds; `timeout.reconciliation` is `60s` with `0s` jitter.)
 
 This matches [Figure SS-L1-05](../../assets/screenshots/day-1/lab-01-05-outofsync-after-refresh.png): only the ConfigMap node carries the `OutOfSync` icon.
 
@@ -437,10 +445,10 @@ kubectl --context k3d-mgmt -n hello rollout history deploy/hello-reconcile
 kubectl --context k3d-mgmt -n hello get pods
 ```
 
-**Expect** (verified; the sync finished at 20:26:55 UTC and the Pod had started at 17:05:09 UTC, which is why its age is hours — on a class VM it will be however long ago Lab 0 or the last reset ran):
+**Expect** (verified; the Pod's age is however long ago Lab 0 or the last `CP-lab-01` reset created it — minutes in this run, hours on a VM set up the day before):
 
 ```text
-Sync Status:        Synced to main (17cb57e)
+Sync Status:        Synced to main (4bf9e96)
 Hello from Git, revision two
 PODINFO_UI_MESSAGE=Hello from Git, revision one
 deployment.apps/hello-reconcile
@@ -448,7 +456,7 @@ REVISION  CHANGE-CAUSE
 1         <none>
 
 NAME                               READY   STATUS    RESTARTS   AGE
-hello-reconcile-5b66f8d98c-fzsm9   1/1     Running   0          3h22m
+hello-reconcile-5b66f8d98c-dtbkx   1/1     Running   0          5m19s
 ```
 
 Walk the evidence top to bottom: Argo CD deployed our commit. The ConfigMap object holds revision two. The **process** inside the container holds revision one. The Deployment has had exactly one rollout, ever, and the Pod is older than the sync.
@@ -469,7 +477,7 @@ Nobody lied. Git, Argo CD, and the ConfigMap agree. The running process is the o
 
 **Say:** "What's the fastest way to make it say revision two?"
 
-Someone will say "delete the Pod" (they did it in Section 6.3) or "`kubectl rollout restart`".
+Someone will say "delete the Pod" (you demonstrated it in 2.2) or "`kubectl rollout restart`".
 
 **Answer:** Either works: a new Pod starts and reads the new ConfigMap. (Rehearsed in an earlier validation pass with `kubectl rollout restart deploy/hello-reconcile`.) Then ask:
 
@@ -598,7 +606,7 @@ DELETED    hello-reconcile-5b66f8d98c-fzsm9   0/1     Completed           0     
 
 **Wow moment:**
 
-> "Look at the middle status line. `Synced` and `Progressing` at the same time. Sync says 'the cluster now matches Git'. Health says 'but the new Pod isn't ready yet'. Two separate questions, and for two seconds they gave two different answers. Now look at Window C: the new Pod was `1/1` Ready *before* the old one started terminating. At no moment did this app have zero Pods. That's a rolling update."
+> "Look at the middle status line. `Synced` and `Progressing` at the same time. Sync says 'the cluster now matches Git'. Health says 'but the new Pod isn't ready yet'. Two separate questions, and for a few seconds they gave two different answers. Now look at Window C: the new Pod was `1/1` Ready *before* the old one started terminating. At no moment did this app have zero Pods. That's a rolling update."
 
 **Do** (prove):
 
@@ -646,7 +654,7 @@ hello-reconcile-67fc76f88b   1         1         1       36s
 ### If it goes sideways
 
 - **Part 1 rolls a new Pod and `curl` shows the new message immediately.** The class VM's `main` already contains a Pod-template annotation — usually a rehearsal that was not reset. The Part 2 diagnosis has nothing to diagnose. Recover live by making the point from the diff: "See the Deployment in this diff? Somebody already added the fix you'd have built." Then skip to Step F and have participants *read* the annotation instead of adding it. Before the next class, run pre-flight 0.2.
-- **The rollout in Part 3 is too fast to see `Progressing` in the browser.** Expected (about two seconds in rehearsal). Point at Window C instead: the order of the Pod lines is the durable evidence.
+- **The rollout in Part 3 is too fast to see `Progressing` in the browser.** Expected (two to seven seconds in rehearsals, depending on when the readiness probe first passes). Point at Window C instead: the order of the Pod lines is the durable evidence.
 
 ---
 
@@ -658,7 +666,7 @@ View the ConfigMap as rendered from Git and as it lives in the cluster, name at 
 
 ### Run it
 
-**Do** (the corrected commands — see pre-flight 0.3):
+**Do** (the guide's commands):
 
 ```bash
 # Rendered from Git, at the revision Argo CD is tracking:
@@ -671,7 +679,8 @@ kubectl --context k3d-mgmt -n hello get configmap hello-reconcile -o yaml
 **Expect** (verified):
 
 ```yaml
-# --- rendered ---
+# --- rendered (yq prints a leading document separator) ---
+---
 apiVersion: v1
 data:
   PODINFO_UI_COLOR: '#326ce5'
@@ -743,7 +752,7 @@ It is **not** in the template. `argocd app manifests --source git` shows the man
 
 ### Wrong turns
 
-- **The `sed` command printed no `data:` block**, so participants conclude "the rendered ConfigMap has no message". Correct the command (pre-flight 0.3) and use the moment: "Tools that slice text are fragile. Tools that parse YAML aren't."
+- **`yq` printed `true`, `---`, `false`, `---`, `false` instead of a ConfigMap.** The participant typed `yq '.kind == "ConfigMap"'` without `select(...)`. That asks yq a yes/no question about each of the three rendered documents, and yq answers it. Verified. Point them at `select(...)`: "`select` keeps the documents where the answer is yes." If someone slices the output with `sed` or `grep` instead, they lose the `data:` block, because keys come out in alphabetical order and `data:` sits *above* `kind:`. Use the moment: "Tools that slice text are fragile. Tools that parse YAML aren't."
 - **Listing `data` as a live-only field.** It is in both. Ask them to diff the two blocks line by line.
 - **Saying "Argo CD ignores metadata".** Too broad — Argo CD does compare labels and annotations that *Git* sets. It is the server-populated fields that don't count.
 
@@ -876,7 +885,7 @@ deployment.apps/hello-reconcile   0/0     0            0           8h
 
 **Reset:** set `replicaCount: 1`, commit, push, sync. Verified: back to `Synced`/`Healthy` with one Pod.
 
-**History panel:** `argocd app history hello-reconcile` lists every sync with its SHA. On a rehearsed VM you will see extra entries from earlier resets; on a fresh VM you'll see the bootstrap sync plus each sync from this lab.
+**History panel:** `argocd app history hello-reconcile` lists every sync with its SHA ([Figure SS-L1-10](../../assets/screenshots/day-1/lab-01-10-history.png) shows the same list in **History and rollback**). After bootstrap or a `CP-lab-01` reset, you'll see one setup sync (ID `0`) plus each sync from this lab. Verified after Part 3: IDs `0` (`9ec1d9c`), `1` (`4bf9e96`), `2` (`f083e46`). Only a sandbox re-synced without a reset shows extra entries.
 
 ---
 

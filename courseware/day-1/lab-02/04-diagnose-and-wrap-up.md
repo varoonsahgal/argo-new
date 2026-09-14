@@ -3,12 +3,20 @@
 > **Day 1 · Lab 2 · Module 4 of 4 · ~10 minutes**
 > **Goal:** practice the onboarding-diagnosis reflex (**E5**), then confirm your checkpoint.
 
+> **🗺️ Where this module fits.** You built working connections in Modules 2 and 3. Now you see what *broken* ones look like, while the working ones are fresh in your mind to compare against. Then you check off the lab and see how it sets up Lab 3.
+
 ---
 
 ## E5 — Diagnose two broken onboarding records
 
 **Difficulty:** Intermediate · **Time:** ~8 minutes · **Objective:** O7
 **The second record (the cluster) is optional — do it if you have time.**
+
+> **🧭 What this exercise is for**
+> - **In plain words:** you apply an onboarding Secret that has one wrong value, read what Argo CD shows, and name the wrong field. You are practising **reading the symptom before changing anything**.
+> - **Think of it like:** a delivery order with a wrong address. The driver's note ("address not found", "gate locked") tells you which line on the order to check.
+> - **Connects to:** Modules 2 and 3. Your working `repo-storefront-gitops` and `cluster-workload` Secrets are your "known good" copies to compare against.
+> - **Big picture:** "the repo won't connect" and "the cluster shows a bad status" are among the most common real support tickets for Argo CD, and the Capstone includes this kind of fault.
 
 **Goal:** apply a deliberately broken onboarding Secret, read the symptom, name the **single wrong field**, and remove it. You are practicing the diagnosis reflex, not memorizing a fix.
 
@@ -55,12 +63,20 @@
 
 <!-- CAPTURE-SPEC: SS-L2-09/10 — Settings → Repositories/Clusters, troubleshooting. State: broken Secret applied. Highlight: Failed status and message. Argo CD v3.5.2. -->
 
+### ✅ What you should take away from E5
+
+- **Read the message, not only the colour.** The text usually says what failed: finding the host, connecting, or logging in.
+- **A broken onboarding Secret usually has one wrong field.** Compare it line by line with a copy you know works.
+- **An address that works from your laptop can still fail from inside the Argo CD Pod.** Always ask "where is this address being used from?"
+- **Removing the broken Secret removes the broken row.** Your working Secrets were never touched, because their names are different.
+
 ---
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| Settings → Repositories **already** shows `storefront-gitops` (or a `http://lab-gitea:3000/course/` credentials template) before E1 | The environment still holds objects from a later lab | `reset-lab.sh CP-lab-02 --local`, then refresh the page |
 | Repository shows **Failed** | Wrong `url`/`username`, or bad password injection | Re-check `url` = `http://lab-gitea:3000/course/storefront-gitops.git`; confirm password came from the credential file; re-apply |
 | Cluster shows **Unknown**/error | The `server:` field is a `localhost`/`127.0.0.1` address (means the Pod itself) | Set `server: https://k3d-workload-server-0:6443`; re-apply |
 | Cluster shows a **TLS/certificate** error | `caData` wrong or empty | Re-collect `ca.crt` from `argocd-manager-token`, use **as-is** (already base64) |
@@ -86,14 +102,21 @@ If all five hold, you have built the real topology. This is exactly checkpoint *
 
 ---
 
-## Key takeaways
+## ✅ Key takeaways
 
-- **Everything Argo CD knows about your repos and clusters is a labeled Secret in one namespace.** Two `kubectl get secret -l ...` commands print the whole address book.
+**From this module (E5):**
+
+- **Diagnose before you fix.** Read the status *and* its message, then find the one wrong field by comparing with a working copy.
+- **Most onboarding failures are an address, a credential, or a certificate** — and the message usually tells you which.
+
+**From the whole of Lab 2:**
+
+- **Argo CD's list of repositories and clusters is just labeled Secrets in the `argocd` namespace.** Two `kubectl get secret -l …` commands show the whole address book.
 - **The identity lives on the cluster being managed, not the one doing the managing.** `argocd-manager` is a ServiceAccount on the *workload* cluster; the management cluster only stores a credential *for* it.
-- **A credential is only valid from the place that will use it.** The controller Pod dials `k3d-workload-server-0:6443`, not `localhost`. A `127.0.0.1` kubeconfig address is the most-copied bug in GitOps.
-- **Least privilege is two locks:** per-namespace Roles decide *what*; `clusterResources: "false"` + scoped `namespaces` decide *where*. `kubectl auth can-i` proves both.
-- **`OutOfSync` + `Missing` is the correct first result, not a failure** — "Git describes resources the cluster does not have yet," and you have not synced on purpose.
-- **The AppProject is a fence you build before you need it** — so a later access request is a small diff, not an argument.
+- **An address only works from the place that uses it.** Argo CD's controller Pod reaches the workload cluster as `k3d-workload-server-0:6443`. Inside that Pod, `localhost` means the Pod itself — the most common copy-paste mistake when registering a cluster.
+- **Least privilege has two locks.** The Roles on the workload cluster decide *what* Argo CD may change; the cluster Secret's `namespaces` and `clusterResources: "false"` decide *where*. `kubectl auth can-i` proves both.
+- **`OutOfSync` + `Missing` is the correct first result, not a failure.** Git describes resources the cluster does not have yet, and you have not synced on purpose.
+- **Build the AppProject (the fence) before you need it**, so a later access request is a small reviewed change, not an argument.
 
 ---
 
@@ -120,6 +143,8 @@ Refresh `storefront-dev`. The answer is **`Unknown`** — not `OutOfSync`, not `
 
 You built the real topology: a private repo connected, a separate workload cluster registered least-privilege, a governance fence, and an Application that renders and compares but has not deployed. That `OutOfSync` / `Missing` state is the deliberate starting line for the next lab.
 
-Next, **[Session 4](../session-04/README.md)** explains how Argo CD renders Helm and orders a sync, and **Lab 3** has you finally **sync** `storefront-dev` to the workload cluster you registered today, introduce drift, turn on self-healing, and recover a rendering failure through Git.
+**In delivery-driver terms:** the address book, the warehouse key, the key card, the rules, and the first delivery order are all in place. Nothing has been delivered yet.
+
+Next, **[Session 4](../session-04/README.md)** explains how Argo CD renders Helm and orders a sync, and **Lab 3** has you finally **sync** `storefront-dev` to the workload cluster you registered today — the first real delivery — then introduce drift, turn on self-healing, and recover a rendering failure through Git.
 
 **Before you move on:** no cleanup required — your `platform-config` commits are the intended output. Lab 3 begins with `reset-lab.sh CP-lab-03 --verify-only --local`.

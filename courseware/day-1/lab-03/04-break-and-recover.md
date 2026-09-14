@@ -3,11 +3,19 @@
 > **Day 1 · Lab 3 · Module 4 of 4 · ~15 minutes**
 > **Goal:** introduce a rendering failure and an ordering failure, notice they surface in **different places**, recover both through Git (**E5**), then confirm the Day 1 outcome.
 
+> **🗺️ Where this module fits.** So far every change worked. Now you make two changes that fail in two *different* ways, learn where each one shows its evidence, and fix both through Git. This is the core on-call skill the Day 2 Capstone tests: **find the layer that failed before you touch anything.**
+
 ---
 
 ## Exercise 5 — Break it two ways, and recover through Git
 
 **Difficulty / time:** Challenging · ~15 minutes.
+
+> **🧭 What this exercise is for**
+> - **In plain words:** there are two very different ways a deployment can fail. **Rendering failure:** Argo CD cannot even produce the YAML from Git, so nothing is sent to the cluster. **Ordering (sync) failure:** the YAML is fine, but a step fails while it is being applied, so the later steps never run.
+> - **Think of it like:** a recipe you cannot read (a page is missing — the kitchen never starts cooking) versus a recipe you can read but whose first step fails (the oven will not heat — so nothing that comes after gets cooked).
+> - **Connects to:** [Session 4 · Module 2](../session-04/02-sync-ordering-and-drift.md) (a PreSync hook must succeed before anything else runs) and [Session 4 · Module 3](../session-04/03-promotion-and-recovery.md) (roll forward or revert — always through Git).
+> - **Big picture:** both failures look "red" in the UI. Knowing *where* to look — the Application's **conditions** or the **sync result** — tells you which component failed and which repo holds the fix.
 
 > **The one distinction to hold onto:** a **rendering** failure means the repo-server could not turn Git into manifests at all (it shows as an Application **condition / `ComparisonError`** — nothing gets applied). A **sync/ordering** failure means the manifests rendered fine but something failed *while applying* (it shows inside the **sync result** — a hook or wave failed). Same redness, different owner, different fix.
 
@@ -26,6 +34,8 @@
 <!-- CAPTURE-SPEC: SS-L3-08 — Application error condition. State: after Part A broken valueFiles. Highlight: ComparisonError banner, no sync result changes. Argo CD v3.5.2. -->
 
 **Recover:** restore the correct `valueFiles` reference **through Git** (a `git revert` of the breaking commit is cleanest), apply, refresh. Confirm the `ComparisonError` clears.
+
+> **✅ Part A in one line:** the Application pointed at a file that is not there, so the **repo-server** could not render anything. The evidence is an Application **condition**, the cluster was never touched, and the fix lived in **`platform-config`**.
 
 ### Part B — an ordering failure (a gate that never opens)
 
@@ -49,6 +59,8 @@ The chart ships a **PreSync** "database migration" Job. When `migration.shouldFa
 <!-- CAPTURE-SPEC: SS-L3-09 — Failed sync with PreSync hook. State: after Part B shouldFail=true. Highlight: failed PreSync Job; operation Failed; later resources not applied. Argo CD v3.5.2. -->
 
 **Recover:** set `migration.shouldFail` back to `false` **through Git** and push. Because a failed sync of the *same* commit is not retried automatically, your *new* commit is what lets Argo CD sync cleanly. Watch the PreSync Job succeed and later waves apply in order.
+
+> **✅ Part B in one line:** the chart rendered fine, but the **first step of the sync** (the PreSync Job) failed, so the steps after it never ran. The evidence is in the **sync result**, the owner is the **application-controller** running the sync, and the fix lived in **`storefront-gitops`**.
 
 **Then justify your choice — revert vs roll forward.** For each part, write one line: did you **revert** (restore last known-good because you were not yet sure) or **roll forward** (commit a fix because you understood it)? Rule: revert when you do not know why; roll forward when you do — and `git revert` leaves a reviewable receipt either way.
 
@@ -112,14 +124,22 @@ If you can produce those four notes without looking anything up, you have the di
 
 ---
 
-## Key takeaways
+## ✅ Key takeaways
 
-- **`helm list` is empty and that is correct** — Argo CD borrows Helm's typewriter and throws away its filing cabinet. No release to roll back — only a commit to revert.
-- **Drift is discovered, not detected** — it appears on the next comparison (~60 s here); Refresh forces it early.
-- **Sync and health are independent** — scaling made the app `OutOfSync` but `Healthy`. Which axis moves tells drift from an outage.
-- **Self-heal outlives your edit** — `kubectl edit` becomes a suggestion. Git wins because someone chose that Git should win.
-- **A rendering failure and an ordering failure are equally red and live in different places** — repo-server (Application condition / `ComparisonError`, nothing applied) vs controller (failed sync result, later phases blocked).
-- **Recover through Git, prefer `git revert`** — revert when you do not know why; roll forward when you do. Either way it leaves a receipt.
+**From this module (E5):**
+
+- **Two kinds of red, two places to look.** A **rendering** failure shows as an Application **condition** (`ComparisonError`) and nothing is applied. An **ordering** failure shows in the **sync result**, and later steps never run.
+- **Find the owner before you fix.** Rendering belongs to the repo-server; applying belongs to the application-controller. The fix lives in whichever repo holds the broken input.
+- **Recover through Git.** Revert when you do not yet know why; roll forward when you do. Both leave a record.
+
+**From the whole of Lab 3:**
+
+- **`helm list` is empty and that is correct.** Argo CD uses Helm to produce YAML and applies it itself — there is no release to roll back, only a commit to revert.
+- **Drift is discovered on the next comparison, not the instant it happens.** **Refresh** makes Argo CD look now.
+- **Sync and health are independent.** Scaling made the app `OutOfSync` but still `Healthy`. Which status moves tells you "changed" from "broken".
+- **Self-heal outlives your hand edit.** Git wins because someone chose that Git should win.
+- **Promotion is a one-line commit** that moves a version number to the next environment.
+- **Find the layer, then fix it in Git** — never by hand-editing the cluster.
 
 ---
 
@@ -136,6 +156,8 @@ If you can produce those four notes without looking anything up, you have the di
 ## Transition — what's next
 
 You have finished Day 1: one Git-to-cluster deployment, run across two environments, recovered from two classes of failure without ever hand-fixing the cluster. Tomorrow the question changes from *"how do I deploy one application safely?"* to *"how do I deploy fifty without multiplying my blast radius fifty times?"*
+
+**The big picture so far:** Lab 1 taught the loop, Lab 2 built the real two-cluster setup, and Lab 3 ran the full cycle on it — deploy, drift, break, recover. Day 2 keeps every one of those ideas and adds scale and guardrails.
 
 Day 2 opens with **[Session 5 — ApplicationSets and App-of-Apps](../../day-2/05-applicationsets-and-app-of-apps.md)**, where the same chart and environments get *generated* instead of hand-written — and where a single template change can touch every environment at once.
 

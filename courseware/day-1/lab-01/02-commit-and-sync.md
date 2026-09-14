@@ -74,7 +74,7 @@ Go to **Window A**. For up to ~60 seconds Argo CD may show nothing — that is t
 
 <!-- CAPTURE-SPEC: SS-L1-05 — Tree after push and Refresh. State: after E2 push + Refresh, route /applications/hello-reconcile. Highlight: OutOfSync badge on the Application and ConfigMap node. Fidelity: full page. -->
 
-**▶ Do this now — read the diff before you approve it.** Click **App Diff** (or run `argocd app diff hello-reconcile` in Window B). It does not auto-sync because this app uses a **Manual** sync policy — Argo CD separates *detecting* changes from *applying* them.
+**▶ Do this now — read the diff before you approve it.** Click **Diff** in the button bar at the top of the app page (or run `argocd app diff hello-reconcile` in Window B). The **Diff** button is greyed out while the app is `Synced`, because there is nothing to compare. The app does not auto-sync because it uses a **Manual** sync policy — Argo CD separates *detecting* changes from *applying* them.
 
 **Expected command-line output:**
 
@@ -90,11 +90,17 @@ Go to **Window A**. For up to ~60 seconds Argo CD may show nothing — that is t
 
 ![Argo CD diff view highlighting the changed message line (v3.5.2)](../../assets/screenshots/day-1/lab-01-06-app-diff.png)
 
-*Figure SS-L1-06 — The diff shows exactly one changed line: the ConfigMap's message.*
+*Figure SS-L1-06 — The **Diff** tab lists one resource, the ConfigMap. It shows the whole object on both sides and highlights exactly one changed line: the message.*
 
-<!-- CAPTURE-SPEC: SS-L1-06 — Diff view. State: after E2 Refresh, before Sync. Highlight: the single changed message line. Fidelity: panel. -->
+<!-- CAPTURE-SPEC: SS-L1-06 — Diff tab (Diff button). State: after E2 Refresh, before Sync. Highlight: the single changed message line. Fidelity: full page. -->
 
-**▶ Do this now — Sync.** Click **Sync**, leave **Prune** unchecked, review the resource list, and confirm. Then watch **Window C** for about 20 seconds.
+**▶ Do this now — Sync.** Click **Sync**. A panel slides in from the right. Leave **Prune** unchecked, review the list under **Synchronize resources** (the ConfigMap carries the yellow `OutOfSync` icon), and click **Synchronize** at the top of the panel. Then watch **Window C** for about 20 seconds.
+
+![Argo CD sync panel with Prune unchecked and three resources listed (v3.5.2)](../../assets/screenshots/day-1/lab-01-07-sync-panel.png)
+
+*Figure SS-L1-07 — The sync panel: **Synchronize** and **Cancel** at the top, **Prune** unchecked, and all three resources selected.*
+
+<!-- CAPTURE-SPEC: SS-L1-07 — Sync panel open. State: after E2 Refresh, before Sync. Highlight: Synchronize button, Prune unchecked, resource list. Fidelity: full page. -->
 
 ![Argo CD after sync: Synced, Healthy, new revision SHA (v3.5.2)](../../assets/screenshots/day-1/lab-01-08-synced-new-revision.png)
 

@@ -222,31 +222,48 @@ async function captureShot(context, shot, cfg, baseUrl) {
 // ---------------------------------------------------------------------------
 // Capture log.
 // ---------------------------------------------------------------------------
-function buildCaptureLog(version, results) {
+function buildCaptureLog(version, results, keptRows = [], order = []) {
   const date = new Date().toISOString();
   const lines = [
     "# Screenshot capture log",
     "",
     `- **Argo CD version (from /api/version):** ${version}`,
-    `- **Captured:** ${date}`,
+    `- **Last capture run:** ${date}`,
     `- **Viewport:** 1440x900, light theme, device scale 1`,
     "",
     "| ID | Guide | File | State recipe (produced by) | Result | Highlight |",
     "|---|---|---|---|---|---|",
   ];
-  for (const r of results) {
+  const rows = results.map((r) => {
     const result = r.error ? `FAILED: ${r.error}` : `ok (${r.scope})`;
-    lines.push(
-      `| ${r.id} | ${r.guide} | ${r.filename} | ${r.produced_by} | ${result} | ${r.highlightResult || "-"} |`,
-    );
-  }
+    return `| ${r.id} | ${r.guide} | ${r.filename} | ${r.produced_by} | ${result} | ${r.highlightResult || "-"} |`;
+  });
+  // Manifest order, so a merged log reads the same as a full run.
+  const rank = (row) => {
+    const i = order.indexOf(row.split("|")[1].trim());
+    return i === -1 ? order.length : i;
+  };
+  lines.push(...[...rows, ...keptRows].sort((a, b) => rank(a) - rank(b)));
   const failures = results.filter((r) => r.error).length;
+  const kept = keptRows.length ? ` ${keptRows.length} row(s) kept from earlier runs.` : "";
   lines.push(
     "",
-    `Captured ${results.length - failures}/${results.length} shots; ${failures} need attention.`,
+    `Captured ${results.length - failures}/${results.length} shots this run; ${failures} need attention.${kept}`,
     "",
   );
   return lines.join("\n");
+}
+
+// Rows from the existing log that this run did not re-capture.
+async function keptLogRows(logPath, results) {
+  const recaptured = new Set(results.map((r) => r.id));
+  try {
+    return (await readFile(logPath, "utf8"))
+      .split("\n")
+      .filter((line) => line.startsWith("| SS-") && !recaptured.has(line.split("|")[1].trim()));
+  } catch {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +348,10 @@ async function main() {
 
   const logPath = join(REPO_ROOT, cfg.capture_log);
   await mkdir(dirname(logPath), { recursive: true });
-  await writeFile(logPath, buildCaptureLog(version, results), "utf8");
+  // A filtered run (--only/--guide) re-captures a few shots; keep every other row.
+  const keptRows = only.length || guides.length ? await keptLogRows(logPath, results) : [];
+  const order = manifest.shots.map((s) => s.id);
+  await writeFile(logPath, buildCaptureLog(version, results, keptRows, order), "utf8");
   console.log(`\nWrote capture log: ${logPath}`);
 
   if (results.some((r) => r.error)) process.exit(1);

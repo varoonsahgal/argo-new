@@ -3,11 +3,19 @@
 > **Day 1 · Lab 3 · Module 2 of 4 · ~20 minutes**
 > **Goal:** deploy dev and prove "render, not release" (**E1**); author a staging Application and promote a tag (**E2**).
 
+> **🗺️ Where this module fits.** This is the first real deployment onto the workload cluster you registered in Lab 2. E1 deploys one environment and shows *how* Argo CD uses Helm. E2 adds a second environment from the same chart and moves a version number from one to the other — the everyday shape of a release in GitOps.
+
 Throughout, **predict before you observe** — fill your prediction first, then run the step, then compare.
 
 ---
 
 ## Exercise 1 — Deploy dev and prove "render, not release"
+
+> **🧭 What this exercise is for**
+> - **In plain words:** you press **Sync** and watch Argo CD create the app on the workload cluster, in a set order. Then you prove that Argo CD used Helm only to *produce* the YAML — it did not run `helm install`, so Helm has no record of it.
+> - **Think of it like:** Helm has a typewriter (it turns a chart plus values into finished YAML) and a filing cabinet (it records every install as a "release"). Argo CD uses the typewriter and delivers the pages itself. It never files anything in Helm's cabinet.
+> - **Connects to:** [Session 4 · Module 1](../session-04/01-render-not-release.md) (render, not release) and [Session 4 · Module 2](../session-04/02-sync-ordering-and-drift.md) (a sync runs in order: PreSync hook, then waves).
+> - **Big picture:** because there is no Helm release, `helm rollback` cannot help you under Argo CD. Undoing a change always means changing Git. Module 4 relies on this.
 
 **Goal:** sync `storefront-dev` so the app runs on the workload cluster, watch the PreSync hook and sync waves go by in order, then prove — with evidence — that Argo CD did **not** create a Helm release.
 
@@ -48,9 +56,21 @@ Throughout, **predict before you observe** — fill your prediction first, then 
 - *Hint 2:* If the Deployment stays `Progressing`, check `kubectl --context k3d-workload -n storefront-dev get pods` — wrong context is the usual cause of "nothing is there."
 - *Hint 3:* The empty `helm list` is Session 4's one-sentence thesis.
 
+### ✅ What you should take away from E1
+
+- **A sync is ordered.** The PreSync hook (the migration Job) runs first, then lower waves before higher ones.
+- **An empty `helm list` is proof, not a problem.** Argo CD rendered the chart with Helm and applied the result itself, so no Helm release exists.
+- **`Synced` + `Healthy` + the right `curl` answer** is the full evidence that a deployment really worked: matches Git, is running, and serves the expected message.
+
 ---
 
 ## Exercise 2 — Deploy staging from its own values file, then promote a tag
+
+> **🧭 What this exercise is for**
+> - **In plain words:** you create a second Application, `storefront-staging`, that uses the **same chart** with **staging's values file**. Then you "promote" a version: write the image tag dev is running into staging's values file and sync.
+> - **Think of it like:** one recipe (the chart), two kitchens (dev and staging), and a separate recipe card for each kitchen (the values files). Promotion is copying one line from the dev card to the staging card.
+> - **Connects to:** [Session 4 · Module 3](../session-04/03-promotion-and-recovery.md) — directory-per-environment layout and "promotion is a moving pin." It also reuses the AppProject rules you wrote in Lab 2.
+> - **Big picture:** the promotion is **one small commit** that anyone can read, review, and revert. That is the whole reason GitOps teams can move fast without losing track of what changed.
 
 **Goal:** author a **second** Application, `storefront-staging`, that renders the *same* chart with the *staging* values file; then **promote** the image tag `dev` has been running into staging as a single reviewable commit.
 
@@ -70,6 +90,8 @@ Throughout, **predict before you observe** — fill your prediction first, then 
    kubectl --context k3d-mgmt -n argocd apply -f platform-config/applications/storefront-staging.yaml
    ```
 4. Sync `storefront-staging` and verify staging's settings (port-forward to the `storefront-staging` namespace, or read the UI).
+
+> **💡 Why the guardrail step exists.** In Lab 2 you wrote the AppProject to allow exactly one namespace. A new environment is a new destination, so the rules must be widened on purpose, in a commit. A fence that grows only by reviewed changes is the point of having one.
 
 **Now promote a tag.** A newer podinfo release, **`6.16.0`**, has been validated in `dev`:
 
@@ -97,5 +119,20 @@ Throughout, **predict before you observe** — fill your prediction first, then 
 - *Hint 1:* The `helm.valueFiles` path is *relative to the chart path* (`charts/storefront`) — count the `../` to the sibling env directory.
 - *Hint 2:* A project error on the new Application means you skipped the AppProject destination step.
 - *Hint 3:* "Promote a number" literally: the *only* changed line in `envs/staging/values.yaml` is the `image.tag`.
+
+### ✅ What you should take away from E2
+
+- **One chart, many environments.** Environments differ only by their values file (and the Application that points at it).
+- **A new environment needs the AppProject's permission first.** The fence from Lab 2 blocks anything you did not allow.
+- **Promotion is a one-line commit** that moves a version number into the next environment. You can see it in `git log`, review it, and revert it.
+
+---
+
+## ✅ Key takeaways from this module
+
+- **Syncing runs in order:** PreSync hook first, then waves from low to high.
+- **Argo CD renders Helm charts but never creates Helm releases** — so `helm list` is empty and `helm rollback` has nothing to roll back.
+- **A second environment is a second Application using the same chart with a different values file**, and the AppProject must allow its namespace.
+- **Promotion is a small, reviewable Git change to a version number** — not a copy of files between servers.
 
 **→ Next:** [03 — Drift and self-heal](03-drift-and-self-heal.md)

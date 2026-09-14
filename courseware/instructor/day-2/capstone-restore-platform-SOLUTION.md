@@ -1,7 +1,8 @@
 # Capstone — Instructor Walkthrough and Solutions
 
 > **INSTRUCTOR ONLY. Never share this file with participants, never project it, and never leave it open on a screen participants can see — this file names every fault.**
-> **Participant guide:** [capstone-restore-platform.md](../../day-2/capstone-restore-platform.md)
+> **Participant guide (now a modular arc):** [capstone/README.md](../../day-2/capstone/README.md)
+> **Module map:** the brief/mental-model is in [module 01](../../day-2/capstone/01-brief-and-mental-model.md); setup/rules in [module 02](../../day-2/capstone/02-setup-and-rules.md); the evidence toolbox in [module 03](../../day-2/capstone/03-evidence-toolbox.md); P0–P1 in [module 04](../../day-2/capstone/04-triage.md); P2–P4 in [module 05](../../day-2/capstone/05-restore-verify-reflect.md); troubleshooting/completion in [module 06](../../day-2/capstone/06-troubleshooting-completion-close.md). Phase/fault references below are unchanged.
 > **Timebox:** 90 minutes, plus your debrief · **Scaffolding:** G3 (diagnostic)
 > **Verified:** 2026-09-13 as a full incident on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`. The platform was reset to `CP-capstone`, all seven faults were injected with `inject-capstone-faults.sh inject all`, and every fault was diagnosed and repaired through the guide's controlled change paths, with `capstone-check.sh` run after each repair. Output blocks are real; SHAs, Pod names, IPs, and ages will differ.
 

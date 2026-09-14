@@ -18,19 +18,27 @@ reset-lab.sh CP-lab-01 --verify-only --local
 
 `--verify-only` prints a PASS/FAIL table without changing anything. `CP-lab-01` is an alias for the baseline, so the header says `CP-baseline` — expected.
 
-**Expected output** *(representative):*
+**Expected output:**
 
 ```text
-▶ Verification for CP-baseline
+==> Verification for CP-baseline
   PASS  Application hello-reconcile Synced/Healthy
+  PASS  Deployment hello-reconcile at rollout revision 1, no Pod-template annotations
+  PASS  Application team-a-guestbook absent
+  PASS  AppProject team-a absent
   PASS  Secret in-cluster present
+  PASS  Repository and cluster Secrets are exactly: in-cluster
   PASS  workload namespace storefront-prod present
   PASS  workload SA argocd-manager absent (not registered)
 
 PASS CP-baseline is in the expected state.
 ```
 
-The workload cluster is **not registered yet** — correct for Lab 1; Lab 2 sets it up.
+Three rows matter most for this lab:
+
+- **`rollout revision 1`** — the sample app has never been changed. A *rollout* is Kubernetes replacing an app's Pods with new ones, and each rollout gets a revision number. Module 3 uses that number as evidence.
+- **`Secret in-cluster present` / `Repository and cluster Secrets are exactly: in-cluster`** — Argo CD knows about only one cluster (the management cluster it runs on) and has no stored repository credentials.
+- **`workload SA argocd-manager absent`** — the workload cluster is **not registered yet** (an SA, or ServiceAccount, is the identity Argo CD will use there). That is correct for Lab 1; Lab 2 sets it up.
 
 > **If any row says `FAIL`:** run `reset-lab.sh CP-lab-01 --local` (without `--verify-only`) to rebuild the starting state. **Warning:** a full reset discards in-progress lab work and forces every course repo back to baseline. On the first run of the day there is nothing to lose.
 
@@ -71,27 +79,32 @@ argocd login localhost:8443 --username admin \
 argocd app get hello-reconcile
 ```
 
-`--insecure` accepts the same self-signed certificate the browser warned about. **Expected output** *(representative):*
+`--insecure` accepts the same self-signed certificate the browser warned about. **Expected output** *(your commit SHA in brackets will differ)*:
 
 ```text
+'admin:login' logged in successfully
+Context 'localhost:8443' updated
 Name:               argocd/hello-reconcile
 Project:            default
 Server:             https://kubernetes.default.svc
 Namespace:          hello
-Repo:               http://lab-gitea:3000/course/hello-reconcile.git
-Target:             main
-Path:               chart
+URL:                https://localhost:8443/applications/hello-reconcile
+Source:
+- Repo:             http://lab-gitea:3000/course/hello-reconcile.git
+  Target:           main
+  Path:             chart
+SyncWindow:         Sync Allowed
 Sync Policy:        Manual
-Sync Status:        Synced to main (abc1234)
+Sync Status:        Synced to main (9ec1d9c)
 Health Status:      Healthy
 
 GROUP  KIND        NAMESPACE  NAME             STATUS  HEALTH   HOOK  MESSAGE
-       ConfigMap   hello      hello-reconcile  Synced
-       Service     hello      hello-reconcile  Synced  Healthy
-apps   Deployment  hello      hello-reconcile  Synced  Healthy
+       ConfigMap   hello      hello-reconcile  Synced                 configmap/hello-reconcile created
+       Service     hello      hello-reconcile  Synced  Healthy        service/hello-reconcile created
+apps   Deployment  hello      hello-reconcile  Synced  Healthy        deployment.apps/hello-reconcile created
 ```
 
-Read the top block like an address label: **which repo**, **which revision**, **which path**, **which destination**, **which project**, **what sync policy** (`Manual` — nothing syncs unless you tell it to). The bottom block lists the three resources this app owns.
+Read the top block like an address label: **which repo** (`Repo`), **which revision** (`Target`, and the commit in `Sync Status`), **which path** (`Path`), **which destination** (`Server` and `Namespace`), **which project** (`Project`), and **what sync policy** (`Manual` — nothing syncs unless you tell it to). The bottom block lists the three resources this app owns. Its `MESSAGE` column reports what the *last sync* did to each resource — `created` here, because the environment setup created them.
 
 **▶ Do this now — open the resource tree (Window A).** Click the `hello-reconcile` tile.
 

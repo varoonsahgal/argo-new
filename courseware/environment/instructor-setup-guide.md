@@ -279,8 +279,10 @@ the exact same scripts the VMs run.
    ```
 
 If any step fails, fix it in the sandbox before provisioning a cohort. The
-recorded results of this validation live in
-[`courseware/reviews/environment-validation.md`](../reviews/environment-validation.md).
+recorded results of the most recent end-to-end runs live in
+[`courseware/reviews/`](../reviews/) — one `lab-0N-validation-<date>.md`
+report per lab, plus `solution-validation-2026-09-13.md` for the instructor
+walkthroughs.
 
 ---
 

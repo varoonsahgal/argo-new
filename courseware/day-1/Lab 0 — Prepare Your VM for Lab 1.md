@@ -277,9 +277,9 @@ When following Lab 1:
 - Use VM terminal windows wherever the guide says “SSH session.”
 - Load `source ~/argo-lab-env.sh` in each terminal.
 - Include `--local` in course reset/verification commands. Use `bash` and the script’s full path as demonstrated above if needed.
-- Expect a message change to affect both the ConfigMap and the Deployment annotation in the Argo CD diff.
+- Expect Lab 1's first message change to show **only the ConfigMap** in the Argo CD diff. The chart deliberately starts without a rollout trigger; Lab 1 has you add one yourself.
 
-**If the environment was already bootstrapped before the chart update:** pulling the course repository does not update the existing Gitea repository or its saved baseline. Stop and have the baseline refreshed before beginning the exercise; do not assume the downloaded correction is already deployed.
+**If the environment was already bootstrapped from an older copy of the course repository:** pulling the course repository does not update the existing Gitea repository or its saved baseline. The verifier in Section 7 catches this: its row `Deployment hello-reconcile at rollout revision 1, no Pod-template annotations` reports `FAIL`. If it does, stop and have the baseline refreshed before beginning Lab 1; do not assume the downloaded correction is already deployed.
 
 ## Troubleshooting
 
