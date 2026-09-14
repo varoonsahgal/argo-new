@@ -135,7 +135,21 @@ Choose `k3d-mgmt` or `k3d-workload`. Replace `TODO_CONTEXT` below with your choi
 LAB_REPO_CONTEXT='TODO_CONTEXT'
 ```
 
-Before applying anything, answer: **which cluster contains the Argo CD instance that needs to read this connection?**
+Before applying anything, answer: **which cluster contains the Argo CD instance that needs to read this connection?
+
+<details>
+<summary>💡 Hint: Which cluster should store the connection?</summary>
+
+```bash
+LAB_REPO_CONTEXT='k3d-mgmt'
+```
+
+**Argo CD runs on the management cluster**, so its repository connection Secret belongs there, in the `argocd` namespace.
+
+The workload cluster is where Argo CD will deploy your application later. It does not need this Git repository connection Secret.
+
+</details>
+**
 
 ### Step 3 — run the supplied credential helper
 
