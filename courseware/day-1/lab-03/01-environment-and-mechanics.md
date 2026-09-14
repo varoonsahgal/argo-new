@@ -1,25 +1,41 @@
-# Lab 3 · Module 1 — Environment and New Mechanics
+# Lab 3 · Module 1 — Get Ready to Deploy Storefront
 
 > **Day 1 · Lab 3 · Module 1 of 4 · ~8 minutes**
-> **Goal:** confirm the healthy start state and pick up the two *new* mechanics this lab needs — reaching the workload app, and knowing which of two repos owns each change.
+> **Goal:** verify that Argo CD is ready to deploy storefront, understand why the app is not running yet, and know where to make the changes that follow.
 
-> **🗺️ Where this module fits.** No exercises yet. You confirm that Lab 2's work is in place, and you learn three small things you will use all lab: how to look at the app from your terminal, what "promotion" means in GitOps, and which of the two Git repositories holds which kind of change.
+## Before you begin — the deployment is ready, but waiting
+
+Imagine opening Argo CD and seeing a storefront Application—but there is no storefront to visit. Is something broken?
+
+**At this point in the lab, that is exactly what you should see.** In Lab 2, you connected the repository, registered the workload cluster, and created the instructions Argo CD needs. You have not yet told it to deploy storefront.
+
+There are two different things to keep straight:
+
+| Thing | What it is | Where it lives | Exists now? |
+|---|---|---|---|
+| **`storefront-dev` Application** | Instructions telling Argo CD what to read from Git and where to deploy it | Management cluster, in the `argocd` namespace | Yes |
+| **Running storefront workload** | The Pods that run the app and the Service used to reach them | Workload cluster, in the `storefront-dev` namespace | No—Module 2 deploys these |
+
+**This module is your preflight check.** You will verify the setup, locate the two repositories, and understand the release you will make next. Keep storefront unsynced for now: the first deployment belongs to Module 2.
+
+Across Lab 3, you will deploy dev, create staging, try an updated app version in dev, and promote that version to staging. Later, you will explore drift and recover from failures. First, make sure everyone is starting from the same place.
 
 ---
 
-## 1. Environment check — confirm `CP-lab-03`
+## 1. Verify the starting checkpoint
 
-> **🧭 What this step is for**
-> - **In plain words:** you check that everything Lab 2 built is present — the repository connection, the workload cluster registration, the `storefront` AppProject, and the `storefront-dev` Application.
-> - **Connects to:** Lab 2's checkpoint. `CP-lab-03` is exactly the state Lab 2 ended in.
-> - **Why it matters:** this lab deploys onto that setup. If any piece is missing, the first sync fails for a reason that has nothing to do with this lab.
+`CP-lab-03` is the setup Lab 2 ended with. The check below confirms that Argo CD has its repository connection, workload cluster registration, `storefront` AppProject, and `storefront-dev` Application.
 
-**▶ Do this now:**
+The **AppProject** contains Argo CD's rules for which sources and destinations this group of Applications may use. The **Application** selects the particular source and destination for dev.
+
+**▶ Run this in your lab terminal:**
 
 ```bash
 source ~/argo-lab-env.sh
 reset-lab.sh CP-lab-03 --verify-only --local
 ```
+
+`--verify-only` checks the setup without resetting it.
 
 **Expected output:**
 
@@ -41,19 +57,36 @@ reset-lab.sh CP-lab-03 --verify-only --local
 PASS CP-lab-03 is in the expected state.
 ```
 
-If any row says **FAIL**, run `reset-lab.sh CP-lab-03 --local` (no `--verify-only`) to restore. A full reset discards uncommitted lab work.
+**What to notice:** `Application storefront-dev present (manual)` means the deployment instructions exist and syncing requires your action. It does **not** mean the storefront Pods are running. The production namespace and permissions shown here are part of the prepared setup; you will work with dev and staging next.
 
-**▶ Do this now — confirm both clones are in your home directory.** Lab 2 cloned `platform-config`; Session 4's optional Try It cloned `storefront-gitops`. If `ls` reports either one missing, clone it:
+If any row says **FAIL**, restore the checkpoint:
 
 ```bash
-cd ~
-ls -d platform-config storefront-gitops
-git clone http://lab-gitea:3000/course/storefront-gitops.git   # only if storefront-gitops is missing
+reset-lab.sh CP-lab-03 --local
 ```
 
-Commands in this lab that name `platform-config/…` run from your home directory (`~`). Commands that work inside one repository (`git`, `helm template`) run from that repository's folder.
+**A full reset discards uncommitted lab work.** Save any work you want to keep before running it. Then rerun the verification command and confirm it passes.
 
-**▶ Do this now — confirm the starting picture in the UI.** `storefront-dev` should be **`OutOfSync`** / **`Missing`** — the correct starting state, meaning "Argo CD can render and compare, and nothing is deployed yet."
+---
+
+## 2. Check the UI — why “Missing” is correct
+
+**▶ Open the Argo CD Applications page. Do not click Sync yet.**
+
+You should see:
+
+| Application | Expected state | What it tells you |
+|---|---|---|
+| `hello-reconcile` | `Synced` / `Healthy` | The app from Lab 1 is still running as expected. |
+| `storefront-dev` | `OutOfSync` / `Missing` | Argo CD has a desired deployment, but its workload resources have not been created yet. |
+| `storefront-staging` | No tile | You will create this Application in Module 2. |
+
+For storefront, the two status labels answer different questions:
+
+- **`OutOfSync`: does the live cluster match the desired resources?** Not yet. Git describes resources that still need to be deployed.
+- **`Missing`: are the expected workload resources present?** Not yet. The Application exists, but its workload has not been created.
+
+Manual sync is the reason Argo CD is waiting. **Creating an Application gives Argo CD instructions; syncing tells it to apply those instructions to the destination cluster.**
 
 ![Applications list showing storefront-dev OutOfSync and Missing at the start of Lab 3 (v3.5.2)](../../assets/screenshots/day-1/lab-03-01-env-check.png)
 
@@ -61,83 +94,95 @@ Commands in this lab that name `platform-config/…` run from your home director
 
 <!-- CAPTURE-SPEC: SS-L3-01 — Applications list, environment check. State: CP-lab-03, route /applications. Highlight: storefront-dev OutOfSync+Missing; no storefront-staging tile. Argo CD v3.5.2. -->
 
----
-
-## 2. New mechanic: reaching a workload with no public address
-
-> **🧭 What this step is for**
-> - **In plain words:** Argo CD's statuses tell you what Argo CD *thinks*. To see what users would actually get, you ask the app itself. This step gives you a way to do that from your terminal.
-> - **Think of it like:** a status light on a coffee machine says "ready" — but the real test is pouring a cup. `curl` pours the cup.
-> - **Refresher:** a **Service** of type `ClusterIP` gives a set of Pods one stable address, but only *inside* the cluster. `kubectl port-forward` opens a temporary tunnel from a port on your machine to that Service.
-
-The storefront app listens on port **9898** (it is `podinfo`). Its `ClusterIP` Service is reachable *inside* the workload cluster but not from your shell — so you open a temporary tunnel and `curl` through it.
-
-**▶ Do this now (you will reuse this all lab):**
-
-```bash
-# Terminal A — open the tunnel (leave running; Ctrl-C stops it):
-kubectl --context k3d-workload -n storefront-dev port-forward svc/storefront 9898:9898
-```
-
-```bash
-# Terminal B — read the app through the tunnel:
-curl -s localhost:9898 | grep -o '"message": *"[^"]*"'
-```
-
-**Expected shape** *(after Exercise 1 deploys it):*
-
-```text
-"message": "storefront DEV"
-```
-
-The message text comes from the environment's values file, so a change in Git becomes visible here. This is your ground-truth check that a deploy or promotion actually landed.
+**There is no running storefront to connect to yet.** Port-forwarding will not work at this checkpoint because the storefront Service and Pods do not exist. Module 2 provides the port-forward and `curl` commands immediately after the first successful deployment.
 
 ---
 
-## 3. New mechanic: promotion moves a version pin, not artifacts
+## 3. Find the two repositories — which file controls what?
 
-> **🧭 What this step is for**
-> - **In plain words:** "promoting" a change from dev to staging does not mean copying files or images between servers. It means **changing one version number** in staging's settings file, in a commit that someone can review.
-> - **Think of it like:** a recipe card for each kitchen. When the test kitchen (dev) is happy with a new ingredient version, you write the same version on the staging kitchen's card. The recipe (chart) stays the same.
-> - **Connects to:** [Session 4 · Module 3](../session-04/03-promotion-and-recovery.md) — "promotion is a moving pin, not a moving artifact."
+You will make two kinds of change in this lab: change the instructions **Argo CD follows**, or change the **workload it deploys**. Each belongs in a different repository.
 
-"Promoting" `dev` → `staging` is **not** a pipeline copying images. In GitOps it is a **one-line edit to a values file, in a commit, with a reviewer.** The storefront repo is laid out for exactly this:
+**▶ Confirm both repositories are in your home directory:**
+
+```bash
+cd ~
+ls -d platform-config storefront-gitops
+```
+
+Lab 2 used `platform-config`. Session 4's optional Try It used `storefront-gitops`, so that second clone may still be missing.
+
+**If `storefront-gitops` is missing, clone it:**
+
+```bash
+cd ~
+git clone http://lab-gitea:3000/course/storefront-gitops.git
+```
+
+If `platform-config` is missing, return to Lab 2's clone/setup instructions and restore that working copy before continuing.
+
+**Use this table when deciding where to edit:**
+
+| You want to change… | Edit this repository | How the change takes effect in this lab |
+|---|---|---|
+| Which values file an Application uses, its destination, or its sync policy | `platform-config` | Commit, then apply the Application manifest to the management cluster with `kubectl`. |
+| Which destinations the `storefront` AppProject allows | `platform-config` | Commit, then apply the AppProject manifest to the management cluster with `kubectl`. |
+| The app's image version, message, replica count, or chart templates | `storefront-gitops` | Commit and push. Argo CD reads the new commit on refresh; sync to deploy it. |
+
+**Why the different commands?** In this lab, you apply the `platform-config` manifests yourself. The storefront Application reads its chart and values from `storefront-gitops`, so those changes must be pushed for Argo CD to see them. A local commit alone does not update the running app.
+
+**Where to run commands:**
+
+- Commands using paths such as `platform-config/applications/…` run from your home directory (`~`).
+- Git commands run inside the repository you are changing.
+- The `helm template` command in Module 2 runs from `~/storefront-gitops`.
+
+**Quick check:** where would you change the image version? Where would you enable automatic sync?
+
+*Answer: the image version goes in `storefront-gitops`; the Application's sync policy goes in `platform-config`.*
+
+---
+
+## 4. Understand the next release — dev first, then staging
+
+Suppose dev is running a new version successfully. How do you ask staging to run that same version?
+
+In this lab, **promotion means changing staging's image tag to the version you checked in dev**, then committing, pushing, and syncing. An **image tag** identifies the container image version to run, such as `6.15.0`.
+
+Both environments use one **Helm chart**: templates for the Kubernetes resources. Each environment supplies its own **values file**: settings used to fill in those templates.
 
 ```text
 storefront-gitops/
-  charts/storefront/            # one chart, rendered for every environment
-  envs/dev/values.yaml          # image.tag, ui.message, replicaCount for DEV
-  envs/staging/values.yaml      # …for STAGING
-  envs/prod/values.yaml         # …for PROD (pinned to a Git tag, not a branch)
+  charts/storefront/            # shared Kubernetes resource templates
+  envs/dev/values.yaml          # dev's image tag, message, replica count
+  envs/staging/values.yaml      # staging's image tag, message, replica count
+  envs/prod/values.yaml         # production settings; not changed in Module 2
 ```
 
-Promoting the tag `dev` has been running into `staging` is a single changed line in `envs/staging/values.yaml`, committed and pushed (Exercise 2).
+Here is the sequence you will carry out in Module 2:
 
----
-
-## 4. New mechanic: everything you change lives in one of two repos
-
-> **🧭 What this step is for**
-> - **In plain words:** there are two kinds of change in this lab. Changing **how Argo CD handles the app** (for example, turning on automatic sync) happens in `platform-config`. Changing **the app itself** (its chart or its settings) happens in `storefront-gitops`.
-> - **Think of it like:** a restaurant has the *recipes* (what the food is — `storefront-gitops`) and the *kitchen rules* (who cooks what, when, and where — `platform-config`). A bad dish can come from either, and the fix goes wherever the mistake is.
-> - **Why it matters later:** in Module 4 you break one thing in each repo. Knowing which repo owns a change is half of finding a failure fast.
-
-Keep these straight — the second half of the lab depends on it:
-
-| You want to change… | Edit this repo | How Argo CD sees it |
+| Stage | Dev image tag | Staging image tag |
 |---|---|---|
-| The **Application** itself (sync policy, which values file, destination) | `platform-config` | `git commit`, then `kubectl --context k3d-mgmt -n argocd apply -f …` |
-| The **application's desired state** (chart, `envs/<env>/values.yaml`) | `storefront-gitops` | `git commit` **and push**; Argo CD reads it on next refresh |
+| After the initial deployments | `6.14.1` | `6.14.1` |
+| Try the update in dev | `6.15.0` | `6.14.1` |
+| Promote the checked version to staging | `6.15.0` | `6.15.0` |
 
-A rendering failure and an ordering failure in Exercise 5 live in *different* repos for this reason. Noticing which repo owns a change is half of finding a failure fast.
+Staging keeps its own message and replica count. You change only its `image.tag` to select the same app version as dev. **You can promote the version without making every setting identical.**
+
+The promotion commit records which version staging should run and can be reviewed or reverted. Argo CD then applies the updated desired state when you sync.
+
+This is the concrete example behind [Session 4 · Module 3](../session-04/03-promotion-and-recovery.md)'s phrase “promotion is a moving pin, not a moving artifact.” No edits are needed in this section yet.
 
 ---
 
-## ✅ Key takeaways from this module
+## ✅ Ready for Module 2?
 
-- **You start where Lab 2 finished:** `storefront-dev` exists, is `OutOfSync` / `Missing`, and uses manual sync.
-- **Statuses are Argo CD's opinion; `curl` is the app's answer.** Use the port-forward to check that a change really reached users.
-- **Promotion = changing one version number in the next environment's values file**, as a reviewable commit. The chart does not move.
-- **Two repos, two kinds of change:** `platform-config` for how Argo CD manages the app, `storefront-gitops` for what the app is.
+You are ready when:
+
+- The `CP-lab-03` verification passes.
+- `storefront-dev` is `OutOfSync` / `Missing` with manual sync, and there is no staging Application yet.
+- Both repositories are available in your home directory.
+- You know that `platform-config` holds Argo CD's instructions and rules, while `storefront-gitops` holds the chart and environment settings.
+
+**Next, you will press Sync and turn the existing deployment instructions into a running storefront.** Then you will check the app's response, create staging, and promote an updated version.
 
 **→ Next:** [02 — Deploy and promote](02-deploy-and-promote.md)
