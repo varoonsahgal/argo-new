@@ -4,7 +4,7 @@
 > **Participant guide (now a modular arc):** [lab-05/README.md](../../day-2/lab-05/README.md)
 > **Exercise → module map:** E1, E2 are in [module 02](../../day-2/lab-05/02-build-fence-and-happy-path.md); E3, E4 in [module 03](../../day-2/lab-05/03-bypass-attempts.md); E5 in [module 04](../../day-2/lab-05/04-deletion-protection-and-wrap-up.md). Exercise IDs and answers below are unchanged.
 > **Timebox:** ~50 minutes on the required path · **Scaffolding:** G2 (reduced)
-> **Verified:** 2026-09-13, end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`, starting from a freshly reset and verified `CP-lab-05`. Every output block was captured from that run unless marked otherwise. **No password or token value appears in this file.**
+> **Verified:** 2026-09-13, and re-verified 2026-09-14 after the guide fixes (G-4 timeouts, G-5 stretch 4, stretch 2 re-run; see `courseware/reviews/lab-05-validation-2026-09-14.md`), end to end, on the course's local k3d two-cluster sandbox: Argo CD `v3.5.2` (chart `10.8.4`), `argocd` CLI `v3.5.2`, Kubernetes `v1.35.8+k3s1`, Helm `v4.2.1`, starting from a freshly reset and verified `CP-lab-05`. Every output block was captured from that run unless marked otherwise. **No password or token value appears in this file.**
 
 ---
 
@@ -32,19 +32,19 @@ source ~/argo-lab-env.sh
 reset-lab.sh CP-lab-05 --verify-only --local
 ```
 
-**Expect** (verified): 21 rows, all `PASS`, matching the guide's Section 5.1 block exactly, ending `PASS CP-lab-05 is in the expected state.`
+**Expect** (verified 2026-09-14): 22 rows, all `PASS` — the seven `platform-*`/`storefront-*-workload` apps `Synced/Healthy`, four absence rows (`hello-reconcile`, `storefront-dev`, `team-a-guestbook`, `AppProject team-a`), the ApplicationSet and two projects, four Secrets, `Repository and cluster Secrets are exactly: in-cluster, repo-storefront-gitops, cluster-workload, course-repo-creds`, and three workload rows — ending `PASS CP-lab-05 is in the expected state.` A full `reset-lab.sh CP-lab-05 --yes --local` took **72 s** on the build Mac.
 
 ### 0.2 Three live-demo traps
 
 | Trap | What happens (verified) | What to do |
 |---|---|---|
-| **Exercise 3 Part A — pressing Sync from the CLI** | `argocd app sync team-a-wrong-dest` **never returns**. The operation itself ends instantly (`Phase: Error`, `Duration: 0s`), but the CLI waits forever for a state that can't be reached. In rehearsal it hung for 7 minutes | Always add `--timeout 30`. It then exits with `timed out (30s) waiting for app "team-a-wrong-dest" match desired state`. Or press **Sync** in the UI instead |
+| **Exercise 3 Part A — pressing Sync from the CLI** | `argocd app sync team-a-wrong-dest` **never returns** without a timeout. The operation itself ends instantly (`Phase: Error`, `Duration: 0s`), but the CLI waits forever for a state that can't be reached (re-verified 2026-09-14: still waiting after 207 s). E3B, E4A, and E4B syncs return at once | The guide now prints `--timeout 30` with the reason (fixed 2026-09-14). It exits with `timed out (30s) waiting for app "team-a-wrong-dest" match desired state`. If someone is already stuck: **Ctrl+C**. Or press **Sync** in the UI instead |
 | **Identity switching** | You will be logged in as `team-a-dev` for parts of Exercises 4 and 5. Every later `argocd` command runs as that account | Log back in as `admin` immediately after each `team-a-dev` step. Check with `argocd account get-user-info` before any admin command |
-| **Stretch 4 — the guide's `add-policy` command** | `--object 'team-a/*'` produces the policy object `team-a/team-a/*` (the CLI prefixes the project name itself), and a role with only `sync` can't even **get** its Application, so `argocd app sync` is denied | Use `--object '*'` and add **both** `get` and `sync` (Section 9) |
+| **Stretch 4 — `add-policy --object`** | `--object 'team-a/*'` produces the policy object `team-a/team-a/*` (the CLI prefixes the project name itself), and a role with only `sync` can't even **get** its Application, so `argocd app sync` is denied (re-verified 2026-09-14) | The guide now prints `--object '*'` with **both** `get` and `sync` (fixed 2026-09-14). If a participant typed the old form, `argocd proj role get` shows the doubled prefix (Section 9) |
 
 ### 0.3 Know what's already right
 
-The Lab 5 guide was validated line by line in a re-test on 2026-09-12 ([courseware/reviews/lab-05-validation.md](../../reviews/lab-05-validation.md)), and this rehearsal re-confirmed every required-path output. The guide's printed messages are verbatim — trust them.
+The Lab 5 guide was re-run end to end on 2026-09-14 ([courseware/reviews/lab-05-validation-2026-09-14.md](../../reviews/lab-05-validation-2026-09-14.md)) after the 2026-09-12 re-test ([lab-05-validation.md](../../reviews/lab-05-validation.md)). Every required-path message matched; the fixes were CLI timeouts, stretch commands, and expected-output layout. The guide's printed messages are verbatim — trust them.
 
 ---
 
@@ -556,6 +556,18 @@ storefront-staging-workload   <none>
 team-a-guestbook              <none>
 ```
 
+**Evidence behind the guide's three-row table** (verified 2026-09-14, after the checkpoint was recorded; the sandbox was reset afterwards):
+
+| Delete | Result |
+|---|---|
+| `kubectl delete application team-a-guestbook` (no finalizer) | Deployment and Service **survived** — same Deployment UID before and after; re-applying and syncing re-adopted them |
+| `argocd app delete team-a-guestbook` (default, as `admin`) | The server added `resources-finalizer.argocd.argoproj.io` during the delete; Deployment and Service **deleted** |
+| `argocd app delete storefront-dev-workload` (default) | `storefront-dev` Deployment **deleted**, despite `preserveResourcesOnDeletion: true` — that setting only governs deletes the ApplicationSet controller makes |
+| `kubectl delete application storefront-staging-workload` | Deployment **survived**; the ApplicationSet re-created the Application within a second |
+| `argocd app delete platform-root` (default) | Root and all three children deleted; NetworkPolicies (6), ResourceQuotas (3), and the agent Deployment **stayed** — the cascade reaches one layer |
+
+**If it goes sideways:** after an `argocd app delete` of a *generated* app, the ApplicationSet did **not** re-create `storefront-dev-workload` on its next two 3-minute passes in rehearsal (12:21:47 and 12:24:47, both `generated 3 applications`, no `created Application`). Re-applying the unchanged ApplicationSet does nothing (`unchanged`). What worked (verified): `kubectl --context k3d-mgmt -n argocd rollout restart deploy/argocd-applicationset-controller` — the Application was re-created within 2 seconds of the new controller starting. Otherwise, reset.
+
 ### Answer key — "why is 'there is no finalizer' dangerous to rely on?"
 
 > "Whether an Application's workloads are deleted is decided by *how the delete is requested*, not by a field on the object. A `kubectl delete` of an Application with no finalizer leaves the workloads running, but `argocd app delete` (the CLI default) and the UI's Foreground/Background options ask for the cascade explicitly — so an Application showing no finalizer is one command away from taking its workloads with it. The boundary that actually holds is who is allowed to `delete` at all."
@@ -626,7 +638,28 @@ Yes
 
 ### Stretch 2 — lock the ApplicationSet controller
 
-Not re-run in this rehearsal. Verified by the lab-tester on 2026-09-12 ([lab-05-validation.md](../../reviews/lab-05-validation.md), row 34): `applicationsetcontroller.policy: create-update` lands in `argocd-cmd-params-cm`, the controller restarts with `ARGOCD_APPLICATIONSET_CONTROLLER_POLICY=create-update`, and an ApplicationSet asking for `create-delete` did **not** get its Application deleted. **Answer to the prediction:** no — once the controller-wide policy is set, per-ApplicationSet overrides are disabled by default.
+Re-run 2026-09-14. The key goes under `configs.params` (next to `server.insecure`) — **not** under the top-level `applicationSet:` block, which is where a participant scanning the values file may look first.
+
+```bash
+# after adding the key and applying with the path
+kubectl --context k3d-mgmt -n argocd get cm argocd-cmd-params-cm -o jsonpath='{.data.applicationsetcontroller\.policy}'; echo
+kubectl --context k3d-mgmt -n argocd get deploy argocd-applicationset-controller -o yaml | grep -A4 ARGOCD_APPLICATIONSET_CONTROLLER_POLICY
+```
+
+```text
+create-update
+        - name: ARGOCD_APPLICATIONSET_CONTROLLER_POLICY
+          valueFrom:
+            configMapKeyRef:
+              key: applicationsetcontroller.policy
+              name: argocd-cmd-params-cm
+```
+
+Test used (verified): a scratch ApplicationSet `policy-probe` (list generator, one element, project `team-a`, `path: attempts/network-policy`, no automated sync, `applicationsSync: create-delete`, `preserveResourcesOnDeletion: true`). It created `policy-probe-one`; emptying the list logged `generated 0 applications`, and the Application was **still there 30 s later** (no delete in the controller log). Deleting the scratch ApplicationSet removed its Application.
+
+**Answer to the prediction:** no — once the controller-wide policy is set, a single ApplicationSet cannot opt back into `create-delete` (per-ApplicationSet override is disabled unless `applicationsetcontroller.enable.policy.override` is also set).
+
+**Revert (verified):** `git -C ~/platform-config checkout -- argocd/values.yaml`, then `apply-argocd-config.sh` with no argument. The key disappears from `argocd-cmd-params-cm`, and the committed E1 grant stays live (`rbac can … sync` → `Yes`, `delete` → `No`).
 
 ### Stretch 3 — deny sync window (verified)
 
@@ -651,7 +684,7 @@ After deleting the window: `SyncWindow: Sync Allowed`.
 
 ### Stretch 4 — project-role token for automation (corrected, verified)
 
-The guide's `--object 'team-a/*'` produces a doubled prefix (verified):
+The guide now prints the corrected commands below (fixed 2026-09-14). Participants working from an older printout typed `--object 'team-a/*'`, which produces a doubled prefix (re-verified 2026-09-14):
 
 ```text
 p, proj:team-a:ci-sync, applications, sync, team-a/team-a/*, allow
@@ -674,12 +707,12 @@ p, proj:team-a:ci-sync, applications, get, team-a/*, allow
 p, proj:team-a:ci-sync, applications, sync, team-a/*, allow
 ```
 
-With a token from `argocd proj role create-token team-a ci-sync` (never print it — capture it in a variable):
+With a token captured as the guide prints it, `TOKEN="$(argocd proj role create-token team-a ci-sync -t)"` (never print it), and `--auth-token "$TOKEN"` on each command:
 
-| Action with the token | Result (verified) |
+| Action with the token | Result (verified 2026-09-14) |
 |---|---|
 | `argocd app get team-a-guestbook` | Allowed |
-| `argocd app sync team-a-guestbook` | Allowed by RBAC |
+| `argocd app sync team-a-guestbook` | Allowed — `Phase: Succeeded` |
 | `argocd app delete team-a-guestbook` | `permission denied: applications, delete, team-a/team-a-guestbook, sub: proj:team-a:ci-sync` |
 | `argocd app get storefront-prod-workload` | `permission denied` |
 
@@ -699,7 +732,15 @@ Clean up: `argocd proj role delete team-a ci-sync`.
 reset-lab.sh CP-capstone --verify-only --local
 ```
 
-**Expect:** 22 rows `PASS`, including `PASS  Argo CD RBAC role:team-a -> team-a-dev present`, ending `PASS CP-capstone is in the expected state.`
+**Expect** (re-verified 2026-09-14 on a state built by following the guide): 23 rows `PASS`, including `PASS  Application team-a-guestbook Synced/Healthy`, `PASS  AppProject team-a present`, and `PASS  Argo CD RBAC role:team-a -> team-a-dev present`, ending `PASS CP-capstone is in the expected state.`
+
+**What the verifier does not check** (participant-built state vs the `CP-capstone` checkpoint files, diffed 2026-09-14):
+
+- The checkpoint's `team-a-guestbook` has `syncPolicy.automated` (`prune`, `selfHeal`); the participant's is manual, as E2 instructs.
+- The checkpoint's `policy.csv` adds `p, role:team-a, applications, action/*, team-a/*, allow`; the participant's has only `get` and `sync`.
+- E1 Part C commits only `projects/team-a.yaml` and `argocd/values.yaml`; `applications/team-a-guestbook.yaml` stays untracked, so Gitea `main` has no Application file.
+
+`reset-lab.sh CP-capstone --yes --local` replaces all three (verified 2026-09-14: afterwards the live `team-a-guestbook` has automated `prune`/`selfHeal`, `argocd-rbac-cm` holds the `action/*` line, and Gitea `main` has both team-a files). The capstone guide tells participants not to run `reset-lab.sh`, so these gaps matter only if the capstone faults go onto a participant's Lab 5 state without that reset.
 
 ### Key takeaways — say them out loud
 

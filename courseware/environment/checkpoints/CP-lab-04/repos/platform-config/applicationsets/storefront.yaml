@@ -3,7 +3,8 @@
 # An ApplicationSet generates and owns many Applications from data. This one uses
 # a matrix of a cluster generator (which workload clusters) and a git-files
 # generator (which environments) to produce one Application per environment.
-# Fill in the TODOs, preview with `argocd appset create --dry-run`, then apply.
+# Fill in the TODOs, preview with
+# `argocd appset generate applicationsets/storefront.yaml -o wide`, then apply.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:

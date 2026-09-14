@@ -112,7 +112,7 @@ argocd appset generate <path-to-appset-file> -o wide
 
 `argocd appset generate` renders the Applications the ApplicationSet *would* produce and prints them. **It creates nothing.** It reads the Git-files generator's repository and the live cluster labels server-side, so its output is the real fan-out. Add `-o yaml` to inspect a full generated Application, or `-o wide` for a one-line-per-app table.
 
-*(There is a server-side equivalent, `argocd appset create --dry-run -o yaml <file>`, and an **Alpha** Preview tab in the UI. Treat those as "you can also"; the CLI is the required path here because it is stable and scriptable. Note: `appset generate` also validates that the referenced `project` exists — if you see "project storefront does not exist," you are not at `CP-lab-04`.)*
+*(There is a server-side equivalent, `argocd appset create --dry-run -o yaml <file>`, and an **Alpha** Preview tab in the UI. Treat those as "you can also"; the CLI is the required path here because it is stable and scriptable. Note: `appset generate` also validates that the referenced `project` exists. If you see "ApplicationSet references project storefront which does not exist", you are not at `CP-lab-04`.)*
 
 > **The rhythm, stated once:** for every ApplicationSet change today — completing it, broadening a selector, breaking a key — you will **(1) preview** with `argocd appset generate`, **(2) count and name** what it would produce, then **(3) apply** only if the count and names match your prediction. If preview surprises you, you caught a mistake for free.
 

@@ -210,8 +210,10 @@ delete_app_cascade() {
 clean_workload_ns() {
   local ns="$1" kind
   kwork get ns "${ns}" >/dev/null 2>&1 || return 0
+  # resourcequota/limitrange: the platform-quotas child writes them, and nothing
+  # outside Argo CD creates them, so a leftover one belongs to a later lab.
   for kind in deployment statefulset daemonset replicaset service configmap job \
-              horizontalpodautoscaler networkpolicy pod; do
+              horizontalpodautoscaler networkpolicy resourcequota limitrange pod; do
     kwork -n "${ns}" delete "${kind}" --all --ignore-not-found >/dev/null 2>&1 || true
   done
 }

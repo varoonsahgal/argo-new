@@ -18,15 +18,35 @@ kubectl --context k3d-mgmt apply -f /tmp/team-a-wrong-dest.yaml
 argocd app get team-a-wrong-dest
 ```
 
-**Expected** — `Sync Status: Unknown`, `Health: Unknown`, one condition:
+**Expected** — `Sync Status: Unknown`, `Health Status: Unknown`, one condition (the condition row is one long line; scroll right in your terminal):
 
 ```text
-CONDITION         MESSAGE
-InvalidSpecError  application destination server 'https://k3d-workload-server-0:6443' and namespace 'storefront-prod'
-                  do not match any of the allowed destinations in project 'team-a'
+...
+Sync Status:        Unknown
+Health Status:      Unknown
+
+CONDITION         MESSAGE                                                                                                                                                               LAST TRANSITION
+InvalidSpecError  application destination server 'https://k3d-workload-server-0:6443' and namespace 'storefront-prod' do not match any of the allowed destinations in project 'team-a'  2026-09-14 07:58:40 -0400 EDT
 ```
 
 **🔍 Note the exact shape:** condition type **`InvalidSpecError`**, phrase **`do not match any of the allowed destinations in project 'team-a'`**, **single** quotes. No sync needed. If you *do* press Sync, an operation records and ends immediately with `Phase: Error`, `Duration: 0s`, **empty sync result**, nothing changed. This is **fence 2** (the AppProject).
+
+> **Syncing this one from the CLI? Add `--timeout 30`.** Without a timeout, `argocd app sync team-a-wrong-dest` **never returns**: the operation ends at once, but the CLI keeps waiting for the app to reach its desired state, which a refused app never does. (Press **Ctrl+C** if you are already stuck.) With the timeout it gives up after 30 seconds:
+>
+> ```bash
+> argocd app sync team-a-wrong-dest --timeout 30
+> ```
+>
+> ```text
+> ...
+> Phase:              Error
+> ...
+> Duration:           0s
+> Message:            InvalidSpecError: application destination server 'https://k3d-workload-server-0:6443' and namespace 'storefront-prod' do not match any of the allowed destinations in project 'team-a'
+> {"level":"fatal","msg":"timed out (30s) waiting for app \"team-a-wrong-dest\" match desired state","time":"..."}
+> ```
+>
+> The last line is the CLI giving up on its wait — not a second error. The refusal is the `Message:` line.
 
 ![Application conditions for team-a-wrong-dest: InvalidSpecError (v3.5.2)](../../assets/screenshots/day-2/lab-05-03-destination-rejected.png)
 
@@ -38,17 +58,24 @@ Point a throwaway (project `team-a`, destination `team-a`) at `path: attempts/cl
 
 ```bash
 kubectl --context k3d-mgmt apply -f /tmp/team-a-clusterrole.yaml
-argocd app sync team-a-clusterrole ; argocd app get team-a-clusterrole
+argocd app sync team-a-clusterrole --timeout 60 ; argocd app get team-a-clusterrole
 ```
 
-**Expected** — the operation ends instantly:
+*(This sync returns at once; `--timeout 60` is only a safety net, for the reason explained in Part A.)*
+
+**Expected** — the operation ends instantly. The `sync` command prints:
 
 ```text
-Phase:    Error
-Duration: 0s
-Message:  ComparisonError: Failed to load live state: cluster level ClusterRole "team-a-escalation"
-          can not be managed when in namespaced mode
+...
+Phase:              Error
+...
+Duration:           0s
+Message:            ComparisonError: Failed to load live state: cluster level ClusterRole "team-a-escalation" can not be managed when in namespaced mode
+...
+{"level":"fatal","msg":"Operation has completed with phase: Error","time":"..."}
 ```
+
+The `fatal` line is the CLI reporting that the operation failed, not the CLI crashing. The `get` that follows shows the same text as a `ComparisonError` condition, with `Sync Status: Unknown` and `Health Status: Missing`.
 
 Nothing created (`kubectl --context k3d-workload get clusterrole team-a-escalation` → `NotFound`).
 
@@ -67,7 +94,7 @@ So your empty `clusterResourceWhitelist` *is* real — it simply never gets aske
 <!-- CAPTURE-SPEC: SS-L5-04 — sync result, cluster-scoped refused by namespaced-mode scope. State: E3B. Highlight: Phase Error, ComparisonError. Argo CD v3.5.2. -->
 
 **Hints:**
-- *Hint 1:* Copy your E2 `team-a-guestbook.yaml` twice; change **`metadata.name`** and the one field each part needs (destination namespace in A, `path` in B). No `syncPolicy:` block.
+- *Hint 1:* Copy your E2 `team-a-guestbook.yaml` twice, saving the copies as `/tmp/team-a-wrong-dest.yaml` and `/tmp/team-a-clusterrole.yaml` (the paths the commands above use); change **`metadata.name`** and the one field each part needs (destination namespace in A, `path` in B). No `syncPolicy:` block.
 - *Hint 2:* Read the *condition*/*sync result*, not the badge.
 - *Hint 3:* Leave the throwaways in place; clean up at the end of E4.
 
@@ -136,10 +163,10 @@ Make a throwaway (project `team-a`, dest `team-a`, `path: attempts/network-polic
 
 ```bash
 kubectl --context k3d-mgmt apply -f /tmp/team-a-netpol.yaml
-argocd app sync team-a-netpol ; argocd app get team-a-netpol
+argocd app sync team-a-netpol --timeout 60 ; argocd app get team-a-netpol
 ```
 
-**Expected** — `Phase: Failed` (not `Error`), and a verbatim Kubernetes rejection:
+**Expected** — the sync returns at once and ends with `{"level":"fatal","msg":"Operation has completed with phase: Failed",...}`. Its `Phase:` line reads `Failed` (not `Error`), and its `Message:` line is a verbatim Kubernetes rejection:
 
 ```text
 one or more objects failed to apply, reason: networkpolicies.networking.k8s.io is forbidden:

@@ -59,9 +59,9 @@ Both outcomes are disasters, in opposite directions, **one quiet annotation apar
 
 ![Argo CD platform-root resource tree with three child Applications (v3.5.2)](../../assets/screenshots/day-2/s05-03-root-app-tree.png)
 
-*Figure SS-S5-03 — The `platform-root` tree: root → `platform-quotas`, `platform-netpol`, `platform-agent`. A cascading delete would follow these same edges downward.*
+*Figure SS-S5-03 — The `platform-root` tree at `CP-lab-05`: the root (`Healthy`, `Synced`) → `platform-agent`, `platform-netpol`, `platform-quotas`. Each child node shows only a sync check, not a health heart. A cascading delete of the root follows these edges one level down and removes the three child Applications. These children carry no finalizer, though, so their own workloads keep running (verified in Lab 4).*
 
-<!-- CAPTURE-SPEC: SS-S5-03 — platform-root App-of-Apps tree. State: CP-lab-05. Highlight: platform-root node and its three child Application nodes with Synced/Healthy badges. Argo CD v3.5.2. -->
+<!-- CAPTURE-SPEC: SS-S5-03 — platform-root App-of-Apps tree. State: CP-lab-05. Highlight: the tree — platform-root node (health heart + sync check) and its three child Application nodes (sync check only). Argo CD v3.5.2. -->
 
 ---
 

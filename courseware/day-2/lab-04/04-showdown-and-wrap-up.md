@@ -44,7 +44,7 @@
 - **Neither pattern is "better".** Each is cheaper for some jobs and riskier for others.
 - **The factory gives you leverage** (one change, many apps, a preview command) and **multiplies mistakes.**
 - **The family tree gives you legibility** (every child is a file a person can read) and **needs more hand-written files.**
-- **Deletion works differently in each:** `applicationsSync` controls it for the factory; the finalizer on the Application controls it for the tree.
+- **Deletion works differently in each.** For the factory, `applicationsSync` decides whether the Application is deleted, and `preserveResourcesOnDeletion` decides whether its workload goes with it. For the tree, the root's `prune` decides whether the child Application is deleted, and the child's own finalizer decides whether its workload goes with it. (E4 showed the course's children have none.)
 
 ---
 
@@ -53,7 +53,7 @@
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `appset generate` errors: *"map has no entry for key …"* | `missingkey=error` caught a template variable the generator doesn't expose — the strict setting **working** | Correct the variable name against the `config.yaml` keys / cluster generator, or restore the missing key |
-| A generated app has `<no value>` and looks normal | The ApplicationSet is **not** strict | Add `goTemplate: true` + `goTemplateOptions: ["missingkey=error"]` (the skeleton sets these — don't remove) |
+| Preview succeeds, but a field (for example `NAMESPACE`) reads `<no value>` | The ApplicationSet is **not** strict, so a missing key rendered as text instead of failing | Add `goTemplate: true` + `goTemplateOptions: ["missingkey=error"]` (the skeleton sets these — don't remove) |
 | You "fixed" a generated/child app with `kubectl edit` and it reverted | You edited the *wrong layer* — something above owns that field | **If your fix reverts, you fixed the wrong layer.** Change the owning file in Git and push |
 | `platform-root` is `Healthy` but a workload is broken | Root health answers "did I apply the child *object*?", not "is the child healthy?" | Open the **child** directly and read *its* status. Never diagnose App-of-Apps from the root alone |
 | You removed a generator input and the app **vanished** | `applicationsSync` permits deletion (default `sync` can delete) | Set `applicationsSync: create-update` **before** changing inputs |
@@ -72,8 +72,19 @@ Met when **all** are true (self-checkable):
 **9.1 — The three generated Applications are healthy.**
 
 ```bash
-argocd app list -o wide | grep storefront-
+argocd app list -o wide | grep 'argocd/storefront-'
 ```
+
+The pattern includes `argocd/` on purpose. A plain `grep storefront-` also matches `platform-netpol` and `platform-quotas`, whose `NAMESPACE` column is `storefront-dev`.
+
+**Expected output** *(middle columns trimmed to `...`)*:
+
+```text
+argocd/storefront-dev-workload      https://k3d-workload-server-0:6443  storefront-dev      storefront  Synced   Healthy  Auto-Prune  ...  main
+argocd/storefront-prod-workload     https://k3d-workload-server-0:6443  storefront-prod     storefront  Synced   Healthy  Auto-Prune  ...  storefront-1.0.0
+argocd/storefront-staging-workload  https://k3d-workload-server-0:6443  storefront-staging  storefront  Synced   Healthy  Auto-Prune  ...  main
+```
+
 All three `Synced`/`Healthy`, and **prod (and only prod)** on `storefront-1.0.0`.
 
 **9.2 — The root tree is traced.** `argocd app get platform-root` shows the root `Synced`/`Healthy` owning the three children, and you can name each child's owning repo and path.
@@ -105,9 +116,17 @@ All three `Synced`/`Healthy`, and **prod (and only prod)** on `storefront-1.0.0`
 
 ## Optional stretch challenges (outside the timebox)
 
-1. **Make the root reflect child failure (custom health).** By default the health of an `argoproj.io/Application` is not assessed — *why* the broken child did not turn the root red in E5B. Add a custom Lua health check via `resource.customizations` (applied with `apply-argocd-config.sh`), re-run E5B, observe. Two sentences on the trade-off: a root that rolls up child health is easier to alert on but hides *which* layer owns a fault.
-2. **Add a merge generator.** Extend the ApplicationSet with a **merge** generator so a per-environment override (e.g. prod `replicaCount`) layers onto the matrix. Preview first.
-3. **Experimental / unverified — the name collision.** *(Not confirmed against a primary source for v3.5.2 — treat as an investigation.)* Construct a template whose two generator entries render the **same** `metadata.name`. Reasoning says you get **one** Application whose spec is rewritten by whichever reconciled last — a spec that "flaps" — not a collision error. Preview, apply in a scratch namespace, watch, record what *actually* happens. The lesson holds: **absence of an error is not the presence of correctness.**
+1. **Make the root reflect child failure (custom health).** By default Argo CD does not assess the health of an `argoproj.io/Application` inside another Application. That is one reason the broken child did not turn the root red in E5B. Add a custom Lua health check for that kind through `resource.customizations` (a values file applied with `apply-argocd-config.sh <your-file>`). Then run `argocd app get platform-root --hard-refresh` until the children show a value in the root's `HEALTH` column. Now compare **two different child failures**, predicting the root's health before each:
+   - **(a)** Re-run E5B: a child that **cannot render** (`ComparisonError`). Look at the child's *health* as well as its sync status.
+   - **(b)** A child whose **Pods cannot start**. In a clone of `platform-components` (no earlier step clones it, so run `cd ~ && git clone http://lab-gitea:3000/course/platform-components.git` first), change the image tag in `agent/deployment.yaml` to one that does not exist, commit, and push.
+
+   Two sentences on what the root's health *can* and *cannot* tell you, and on the trade-off: a root that rolls up child health is easier to alert on, but hides *which* layer owns a fault. **Clean up:** revert both commits, and re-run `apply-argocd-config.sh` without your file to remove the check.
+2. **Add a merge generator.** Extend the ApplicationSet with a **merge** generator so a per-environment override (e.g. prod `replicaCount`) layers onto the matrix. Preview only — do not apply. *Hint:* strict templating still applies. A key that only prod has (`replicaCount`) fails with `map has no entry for key "replicaCount"` for dev and staging if the template uses it directly. Find a way to add that setting only where the key exists.
+3. **The name collision — does the preview catch everything?** Write a *separate* ApplicationSet (for example `collision-test`, with no `automated` sync policy so nothing can deploy) whose template name ignores the environment, such as `collision-test-{{ .name }}`. All three rows now render the **same** `metadata.name`.
+   - **Predict, then preview:** does `argocd appset generate` warn you?
+   - **Predict, then apply it:** one Application whose spec keeps being rewritten? Three? None? Read the new ApplicationSet's conditions and count its Applications.
+   - Write two sentences on what this says about *where* each check happens (the preview vs the controller).
+   - **Clean up:** `kubectl --context k3d-mgmt -n argocd delete applicationset collision-test`.
 
 ---
 

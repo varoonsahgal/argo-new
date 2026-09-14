@@ -25,21 +25,25 @@
 
 ## 0. Before class — pre-flight (10 minutes)
 
-### 0.1 SECURITY: one command in Exercise 5A prints a live cluster token
+### 0.1 SECURITY: the Exercise 5A token leak is fixed — confirm it before class
 
-**Read this before you project anything in Exercise 5A.**
+**What used to happen.** When `argocd appset generate` fails with a missing template key, v3.5.2 prints the generator parameters in its error. Those parameters include the cluster Secret's annotations. The course credential Secrets used to be created with client-side `kubectl apply`, which stores a full copy of what it applied — **plaintext bearer token and CA data included** — in the `kubectl.kubernetes.io/last-applied-configuration` annotation. An earlier rehearsal's 5A error printed that annotation.
 
-When `argocd appset generate` fails with a missing template key, v3.5.2 prints the full generator parameters in its error. Those parameters include the cluster Secret's `metadata.annotations` — and the `kubectl.kubernetes.io/last-applied-configuration` annotation on `cluster-workload` contains the **plaintext bearer token and CA data**. Verified: the fatal error text included the whole annotation.
+**What changed (environment fix, 2026-09-13).** `reset-lab.sh` now removes any stale `last-applied-configuration` annotation and applies the credential Secrets **server-side**, which never creates it.
 
-Why it's there: the cluster Secret was created with client-side `kubectl apply` from `stringData` (in Lab 2 and in `reset-lab.sh`), and client-side apply stores a copy of what it applied. Verified: all three course credential Secrets (`cluster-workload`, `repo-storefront-gitops`, `course-repo-creds`) carry their credential in that annotation, and `kubectl apply --server-side` does **not** add it.
+**Re-verified 2026-09-13** at `CP-lab-04` → E1 → E5A: the failing preview (exit 20, `map has no entry for key "namespace"`) was captured to a file and never displayed; it contained **0** `last-applied-configuration`, **0** `bearerToken`, **0** `token`, and **0** `caData` matches. The only Secret that still carries the annotation is `in-cluster`, which holds labels and a server URL — no credential.
 
-**In class:**
+**Before class, confirm on your own VM** (each line must print `0`):
 
-- **Do not run the failing preview on the projector.** In Exercise 5A, show the error from the ApplicationSet's conditions instead (Section 6), which does not include the parameters.
-- If participants run it themselves, add `2>&1 | cut -c1-300` to truncate, and tell them not to paste the output into chat or tickets.
-- This is a real lesson worth one minute with an advanced group: *anything an ApplicationSet template can read, a template author can render*. The cluster generator exposes cluster Secret metadata to templates.
+```bash
+for s in cluster-workload repo-storefront-gitops course-repo-creds; do
+  printf '%s ' "$s"; kubectl --context k3d-mgmt -n argocd get secret "$s" -o json | grep -c last-applied-configuration
+done
+```
 
-Report it to the environment owner (the fix is server-side apply, or removing the annotation, for credential Secrets).
+If any prints `1` — a VM built or reset before the fix, or a participant who re-applied a Secret client-side in Lab 2 — run `reset-lab.sh CP-lab-04 --local` again and re-check.
+
+**In class:** the failing preview is now safe to project, but it is a 4 KB wall of JSON. The ApplicationSet *conditions* (Section 6) are the readable view. The lesson is still worth one minute with an advanced group: *anything an ApplicationSet template can read, a template author can render* — the cluster generator exposes cluster Secret labels and annotations to templates, which is exactly why credentials must never sit in an annotation.
 
 ### 0.2 Confirm the starting checkpoint
 
@@ -81,10 +85,12 @@ PASS CP-lab-04 is in the expected state.
 
 | Where | Guide says | Actually (verified) |
 |---|---|---|
-| Exercise 1 | An unfinished TODO shows up as a name containing `TODO` | Previewing the **unfilled** skeleton prints **zero rows** (header only). `cluster-role: "TODO"` matches no cluster, so the matrix has nothing to multiply |
-| Exercise 4, trace loop | Three clean lines per child | `grep -E '"repoURL"\|"path"\|"namespace"'` also matches `status` history and resources, producing 10–20 lines per child. Use the compact command in Section 5 |
-| Stretch 1 | "Re-run Exercise 5B and observe the difference" | **No difference**: a child with a `ComparisonError` keeps health `Healthy`, so the custom health check still reports the root `Healthy`. A child that is `Progressing` *does* turn the root `Progressing` |
-| Stretch 3 | The name collision probably produces one flapping Application | The controller **refuses**: `ApplicationSet collision-test contains applications with duplicate name: collision-test-workload`, and creates no Applications. The *preview* shows three same-named rows with no error |
+| Exercise 1 | *(fixed in the guide 2026-09-13)* The guide now says the untouched skeleton previews only the header row | Re-verified: **zero rows** (header only), no error — `cluster-role: "TODO"` matches no cluster. With only the selector filled, the preview prints three rows all named `argocd/TODO` |
+| Exercise 4, trace loop | *(fixed in the guide 2026-09-13)* The guide now uses a `jsonpath` one-liner | The old `grep` loop printed 13–25 lines per child |
+| Exercise 4, Notice | *(fixed in the guide 2026-09-13)* It said a cascade delete of the root removes the children "and their workloads" | Verified: the children go, their workloads stay — the children carry no finalizer (Section 5) |
+| Exercise 3 | *(fixed in the guide 2026-09-13)* No timing was given | The controller acts on a pushed input change at its next pass (2 minutes here; up to 3). Before that pass, prod is listed with or without the policy |
+| Stretch 1 | *(fixed in the guide 2026-09-13)* It used to say "re-run 5B and observe the difference"; it now compares (a) 5B's `ComparisonError` child with (b) an unpullable agent image | Re-verified: (a) **no difference** — the child keeps health `Healthy`, the root stays `Healthy`; (b) the child goes `Progressing` and the root turns `Progressing` 32 s after the push |
+| Stretch 3 | *(fixed in the guide 2026-09-13)* It used to hypothesize one flapping Application; it is now predict → preview → apply → explain, with cleanup | Re-verified: the *preview* shows three same-named rows with no error; the controller **refuses** (`contains applications with duplicate name: collision-test-workload`) and creates no Applications |
 
 ---
 
@@ -391,7 +397,7 @@ Either restore the input (if removing it was a mistake), or retire prod delibera
 
 Point out a subtlety that Lab 5 proves: `preserveResourcesOnDeletion` stops the *ApplicationSet controller* from cascading. A human running the CLI's default delete still cascades.
 
-**Restore** (verified — back to three rows):
+**Restore** (verified — the preview is back to three rows at once; in the wrong-turn run above, where prod's Application had been deleted, the controller re-created `storefront-prod-workload` at its next pass 70 seconds after the push, `Synced`/`Healthy`, adopting the Deployment that had kept running — no Pod restart):
 
 ```bash
 cd ~/storefront-gitops
@@ -446,9 +452,13 @@ argoproj.io  Application  argocd     platform-quotas  Synced                appl
 
 **Say:** "Look at the HEALTH column for the three children. It's blank. Why?" *(Argo CD has no built-in health check for the `Application` kind. The root doesn't know or care whether its children are healthy — keep that in mind for 5B.)*
 
+**Re-verified 2026-09-13:** root and children `Synced`/`Healthy` within 6 seconds; the MESSAGE column can read `unchanged` instead of `created` (a later auto-sync pass replaced the first message). Nothing else differs.
+
+**Cascade, verified — the guide now says this.** `argocd app delete platform-root --yes` (CLI default: cascade) removed all three child Applications within 3 seconds, but **every workload object stayed**: 6 NetworkPolicies, 3 ResourceQuotas, 3 LimitRanges, and the `platform-agent` Deployment. None of the children carries `resources-finalizer.argocd.argoproj.io` (check with the ownership table below plus `FINALIZERS:.metadata.finalizers`). Re-applying `root/platform-root.yaml` brought all four back `Synced`/`Healthy` within 3 seconds, adopting the running objects. Worth one sentence in class: *a cascade stops at the first layer without a finalizer.*
+
 ### Trace each child — use this compact command
 
-The guide's `grep` loop is correct but noisy. This prints exactly what's needed (verified):
+The guide now uses this same `jsonpath` form (with the destination server added). The old `grep` loop matched `status.resources` too — 13–25 lines per child, including `storefront-prod`/`storefront-staging` namespaces, because the quotas and network-policy files name all three namespaces. Verified output:
 
 ```bash
 for c in platform-quotas platform-netpol platform-agent; do
@@ -505,7 +515,7 @@ kubectl --context k3d-mgmt -n argocd get applicationset storefront \
   -o jsonpath='{range .status.conditions[*]}{.type}={.status}: {.message}{"\n"}{end}'
 ```
 
-**Expect** (verified — `ErrorOccurred=True` appeared within about 3 seconds):
+**Expect** (re-verified 2026-09-13 — `ErrorOccurred=True` appeared **78 seconds** after the push, at the controller's next scheduled pass; it can take up to 3 minutes. `argocd appset generate` fails instantly. The controller logged `generated 2 applications` in that pass, but applied nothing: all three existing apps stayed `Synced`/`Healthy`, staging on `storefront-staging`):
 
 ```text
 ErrorOccurred=True: failed to execute go template {{ .namespace }}: template: base:1:3: executing "base" at <.namespace>: map has no entry for key "namespace"
@@ -513,7 +523,7 @@ ParametersGenerated=False: failed to execute go template {{ .namespace }}: templ
 ResourcesUpToDate=False: failed to execute go template {{ .namespace }}: template: base:1:3: executing "base" at <.namespace>: map has no entry for key "namespace"
 ```
 
-> **Project this command, not `argocd appset generate`.** See pre-flight 0.1: the failing preview dumps cluster Secret metadata, including a token.
+> **Project this command rather than the failing `argocd appset generate`.** The preview's error is now credential-free (pre-flight 0.1 — confirm your VM first), but it is a 4 KB block of JSON; the conditions are the readable view.
 
 **Prove the factory failed safe** (verified):
 
@@ -532,12 +542,12 @@ storefront-staging-workload   Synced   Healthy
 
 ### The optional non-strict comparison
 
-Verified: with `goTemplateOptions` removed from a local copy, the preview succeeds and staging's namespace renders as `<no value>`:
+Re-verified 2026-09-13: with the `goTemplateOptions` line deleted from the local file, the preview exits `0` and staging's namespace renders as the literal `<no value>`, both in the `-o wide` NAMESPACE column and as `namespace: <no value>` in `-o yaml`. After `git checkout --`, the strict preview fails again (exit 20). Neither output contained any credential text:
 
 ```text
-argocd/storefront-dev-workload      https://k3d-workload-server-0:6443  storefront-dev
-argocd/storefront-prod-workload     https://k3d-workload-server-0:6443  storefront-prod
-argocd/storefront-staging-workload  https://k3d-workload-server-0:6443  <no value>
+argocd/storefront-dev-workload      https://k3d-workload-server-0:6443  storefront-dev      ...  main
+argocd/storefront-prod-workload     https://k3d-workload-server-0:6443  storefront-prod     ...  storefront-1.0.0
+argocd/storefront-staging-workload  https://k3d-workload-server-0:6443  <no value>          ...  main
 ```
 
 **Wow moment:**
@@ -555,7 +565,7 @@ cd ~/platform-config
 argocd appset generate applicationsets/storefront.yaml -o wide | awk '{print $1}'
 ```
 
-The preview succeeds immediately (three names). **The `ErrorOccurred` condition may stay `True` for up to 3 minutes** (pre-flight 0.3). Verified controller log:
+The preview succeeds immediately (three names). **The `ErrorOccurred` condition may stay `True` for up to 3 minutes** (pre-flight 0.3). The guide now says this and tells participants to confirm with the preview. Re-verified 2026-09-13: the controller re-checked `storefront` at fixed 3-minute ticks (10:41:03, 10:44:03, 10:47:03). The error appeared at one tick, 78 s after the breaking push, and cleared at the next, 50 s after the fix push (`generated 3 applications`). Earlier rehearsal log:
 
 ```text
 level=info msg="end reconcile in 185.615625ms" applicationset=argocd/storefront requeueAfter=3m0s
@@ -578,7 +588,7 @@ argocd app get platform-quotas --refresh
 argocd app get platform-root | sed -n '/Sync Status/,$p'
 ```
 
-**Expect** (verified — the child condition appeared within 3 seconds):
+**Expect** (verified — with the `--refresh` commands above the child condition appears within seconds; without them it took 6 s in one run and 101 s in another):
 
 ```text
   Path:             quotas-typo
@@ -599,6 +609,10 @@ argoproj.io  Application  argocd     platform-agent   Synced
 argoproj.io  Application  argocd     platform-netpol  Synced
 ```
 
+**Re-verified 2026-09-13 (no manual refresh):** the child's `ComparisonError` appeared 6 seconds after the push in one run and **101 seconds** after it in a second run (right after an Argo CD restart); the root moved to the new commit, `Synced`/`Healthy`. The root only notices a commit on its 60-second Git check, so tell the room "about a minute" — or run `argocd app get platform-root --refresh` on the projector.
+
+**Click — the trap, verified.** Open `platform-root`: its tree shows **all three children with a green Synced check**, `platform-quotas` included — the child *object* matches Git, typo and all. Then open **Applications**, search `platform`: `platform-quotas` reads `Healthy` / `Unknown`, path `quotas-typo` (SS-L4-09 now shows this list, because the old root-tree shot showed no error at all). Click `platform-quotas` → **APP CONDITIONS** for the message. A toast "Unable to load data: revision main must be resolved" may appear on the child's page — same cause as Lab 3.
+
 **Answer key — prediction:** root `Synced`/`Healthy`; child `ComparisonError` (sync `Unknown`). The root applied the child *object* successfully; that's all the root measures.
 
 ### The "fix the wrong layer" demonstration — do this live, it takes 10 seconds
@@ -610,16 +624,16 @@ kubectl --context k3d-mgmt -n argocd patch application platform-quotas --type me
 for i in $(seq 1 10); do echo "$(date +%T) path=$(kubectl --context k3d-mgmt -n argocd get application platform-quotas -o jsonpath='{.spec.source.path}')"; sleep 1; done
 ```
 
-**Expect** (verified — the root put the typo back in **3 seconds**):
+**Expect** (re-verified 2026-09-13 — the root's automated self-heal put the typo back within **1 second**; an earlier rehearsal took 3):
 
 ```text
 t=0s live child path=quotas
-t=3s live child path=quotas-typo
+t=1s live child path=quotas-typo
 ```
 
 **Wow moment:**
 
-> "I fixed it. It was fixed. Three seconds later my fix was gone. Nothing is broken — the root owns that field, and the root is doing exactly what Git tells it. If your fix reverts, you fixed the wrong layer."
+> "I fixed it. It was fixed. A second later my fix was gone. Nothing is broken — the root owns that field, and the root is doing exactly what Git tells it. If your fix reverts, you fixed the wrong layer."
 
 **Fix the owning file** (verified — child back to `Synced`/`Healthy` in about 3 seconds):
 
@@ -672,7 +686,15 @@ Run this as a whole-room grid on the board. There is no winner.
 reset-lab.sh CP-lab-05 --verify-only --local
 ```
 
-**Expect:** 21 rows, all `PASS`, ending `PASS CP-lab-05 is in the expected state.` (The Lab 5 walkthrough shows the full table.)
+**Expect** (re-verified 2026-09-13 against a participant-built end state, before any reset): **22** rows, all `PASS`, including `Repository and cluster Secrets are exactly: in-cluster, repo-storefront-gitops, cluster-workload, course-repo-creds`, ending `PASS CP-lab-05 is in the expected state.`
+
+**Know the verifier's limit.** It checks that the `storefront` ApplicationSet *exists* and that all seven Applications are `Synced`/`Healthy`. It does **not** check E3's protection policy. So a participant who skipped E3 still gets PASS. Check the policy by hand:
+
+```bash
+kubectl --context k3d-mgmt -n argocd get applicationset storefront -o jsonpath='{.spec.syncPolicy}{"\n"}'
+```
+
+Expect `{"applicationsSync":"create-update","preserveResourcesOnDeletion":true}`. The run's live spec matched the `CP-lab-05` checkpoint file exactly, so `reset-lab.sh CP-lab-05` does carry the policy forward.
 
 | Criterion | Pass looks like |
 |---|---|
@@ -706,13 +728,15 @@ configs:
       return hs
 ```
 
-**Verified results:**
+**Verified results** (re-verified 2026-09-13; the guide's stretch 1 now asks for exactly rows 2 and 3):
 
 | Child state | Child health | Root health with the check |
 |---|---|---|
-| Healthy | `Healthy` | `Healthy` (children now show `Healthy` in the root's HEALTH column) |
+| Healthy | `Healthy` | `Healthy` (children show `Healthy` in the root's HEALTH column — only after `argocd app get platform-root --hard-refresh`; a plain refresh left the column blank for a minute) |
 | `ComparisonError` (Exercise 5B again) | `Healthy` (sync `Unknown`) | **`Healthy` — no difference** |
-| Unpullable image in `platform-agent` | `Progressing` | **`Progressing` within 4 seconds** |
+| Unpullable image in `platform-agent` (`agent/deployment.yaml` tag changed in `platform-components`) | `Progressing` | **`Progressing`** — 32 s after the push here (4 s in an earlier rehearsal) |
+
+`apply-argocd-config.sh <overlay>` took 21 s and restarted the application controller, repo-server, and API server — expect a short UI reconnect on the projector.
 
 **Say:**
 
@@ -759,9 +783,11 @@ Verified preview: `storefront-prod-workload` gets `parameters=[{"name":"replicaC
 
 ### Stretch 3 — the name collision (verified; the guide's hypothesis is wrong)
 
-**Preview** with `name: "storefront-{{ .name }}"` shows three rows named `argocd/storefront-workload`, no error.
+The guide now frames this as predict → preview → apply → explain, with the scratch ApplicationSet `collision-test` and a cleanup command (G-9 fixed 2026-09-13).
 
-**Applied** (as a separate ApplicationSet with automated sync removed, so nothing could deploy):
+**Preview** (re-verified 2026-09-13) with `name: "collision-test-{{ .name }}"`: exit 0, **three rows all named `argocd/collision-test-workload`**, no error.
+
+**Applied** as a separate ApplicationSet with no `automated` sync (re-verified; the condition appeared within 3 seconds, because a new ApplicationSet is reconciled at once):
 
 ```text
 ErrorOccurred=True: ApplicationSet collision-test contains applications with duplicate name: collision-test-workload
@@ -769,7 +795,7 @@ ParametersGenerated=True: Successfully generated parameters for all Applications
 ResourcesUpToDate=False: ApplicationSet collision-test contains applications with duplicate name: collision-test-workload
 ```
 
-No Applications were created.
+**Zero** Applications were created (controller log: `validation error found during application validation: … duplicate name`). `kubectl --context k3d-mgmt -n argocd delete applicationset collision-test` left only `storefront`.
 
 **Say:**
 
@@ -781,7 +807,7 @@ No Applications were created.
 
 1. **"What does zero mean for a generator?"** — A valid output. Under a deleting policy, it means "delete them all".
 2. **"The root was green and a child was broken. Why?"** — Root health measures "did I apply the child object?", not "is the child healthy?".
-3. **"Your fix reverted in three seconds. What do you do?"** — Stop, and trace up to the owner of the field.
+3. **"Your fix reverted within a second. What do you do?"** — Stop, and trace up to the owner of the field.
 4. **"Which of today's guardrails would have caught a selector typo before merge?"** — Preview in CI, plus `create-update`.
 
 ### Key takeaways — say them out loud

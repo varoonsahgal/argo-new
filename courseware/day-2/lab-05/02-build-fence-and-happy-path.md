@@ -120,6 +120,8 @@ argocd app get team-a-guestbook
 
 **Output shape:** `Synced` / `Healthy`, with the guestbook `Deployment` and `Service` in namespace `team-a`, each `Synced`. Because this app obeys every guard — approved repo, approved destination, namespaced kinds only, kinds the SA can create — nothing refuses it.
 
+> **Two things that look wrong but are not.** The table that `argocd app sync` prints at the end shows both resources as `OutOfSync`/`Missing` — that is their state *before* the sync created them (the MESSAGE column already says `created`). And if you run `argocd app get` straight away, `Health Status` may still read `Progressing` while the Pod starts; run it again a few seconds later and it reads `Healthy`.
+
 > **One line worth reading.** `argocd app get` prints a `URL:` line (`https://localhost:8443/applications/team-a-guestbook`). It is built from `global.domain` in the values file (written into `argocd-cm`) — the one-click path from a terminal finding to the same object in the UI. You will use it constantly in the capstone.
 
 **Hints:**

@@ -33,9 +33,9 @@ argocd app get platform-root
 
 ![platform-root tree owning three child Applications (v3.5.2)](../../assets/screenshots/day-2/lab-04-08-root-child-tree.png)
 
-*Figure SS-L4-08 — `platform-root` owning `platform-quotas`, `platform-netpol`, `platform-agent` — the family tree made real.*
+*Figure SS-L4-08 — `platform-root` (`Healthy`, `Synced`) owning `platform-agent`, `platform-netpol`, and `platform-quotas` — the family tree made real. Look closely: the root shows a health heart and a sync check, but each child node shows **only** a sync check. Argo CD does not judge an Application's health from inside another Application (remember this for Exercise 5B).*
 
-**🔍 Notice:** the root's tree contains *Application* objects, not Deployments — the root deploys **children**, and each child deploys the actual workload. Each child has its own sync/health, independent of the root. Deleting `platform-root` **with cascade** would delete all three children (and their workloads).
+**🔍 Notice:** the root's tree contains *Application* objects, not Deployments — the root deploys **children**, and each child deploys the actual workload. Each child has its own sync/health, independent of the root. Deleting `platform-root` **with cascade** deletes the three child *Application objects*. These children carry **no** `resources-finalizer`, though, so their workloads (quotas, network policies, the agent) keep running, orphaned. In testing, `argocd app delete platform-root` removed the three children within 3 seconds and left every workload object in place. A cascade stops at the first layer whose objects lack a finalizer.
 
 <!-- CAPTURE-SPEC: SS-L4-08 — platform-root tree. State: after E4 apply. Highlight: root → three child Application nodes. Argo CD v3.5.2. -->
 
@@ -43,12 +43,22 @@ argocd app get platform-root
 
 ```bash
 for c in platform-quotas platform-netpol platform-agent; do
-  echo "== $c =="
-  argocd app get "$c" -o json | grep -E '"repoURL"|"path"|"namespace"'
+  echo "$c: $(kubectl --context k3d-mgmt -n argocd get application "$c" \
+    -o jsonpath='{.spec.source.repoURL} path={.spec.source.path} server={.spec.destination.server} ns={.spec.destination.namespace}')"
 done
 ```
 
-**What a correct result looks like:** all three children source from the `platform-components` repository, each from a different path (`quotas`, `network-policies`, `agent`), deploying to the workload cluster. You can now name, for any child, the exact repo and path a fix would live in.
+This reads only each child's `spec` — the settings its file in `apps/` wrote. (Grepping the full `argocd app get -o json` output instead also matches the child's status and resource list, which prints 13–25 lines per child.)
+
+**What a correct result looks like** *(verified output)*:
+
+```text
+platform-quotas: http://lab-gitea:3000/course/platform-components.git path=quotas server=https://k3d-workload-server-0:6443 ns=storefront-dev
+platform-netpol: http://lab-gitea:3000/course/platform-components.git path=network-policies server=https://k3d-workload-server-0:6443 ns=storefront-dev
+platform-agent: http://lab-gitea:3000/course/platform-components.git path=agent server=https://k3d-workload-server-0:6443 ns=platform-system
+```
+
+All three children source from the `platform-components` repository, each from a different path (`quotas`, `network-policies`, `agent`), and deploy to the workload cluster. You can now name, for any child, the exact repo and path a fix would live in. (If you open `platform-quotas` or `platform-netpol` in the UI, you will see objects in `storefront-dev`, `storefront-staging`, *and* `storefront-prod`. The destination namespace is only the default; those files name their own namespaces.)
 
 **Success criterion:** `argocd app get platform-root` shows the root `Synced`/`Healthy` with three children; you can write each child's **owning repo + path** without opening the UI.
 
@@ -87,16 +97,29 @@ Fill this trace table as you go:
 
 > **▶ Predict first.** With `missingkey=error` set, does the ApplicationSet generate a broken staging app, or refuse and report an error? And what happens to the already-generated dev and prod apps?
 
-**What a correct result looks like.** The ApplicationSet reports an **error condition** (`ErrorOccurred`) — "map has no entry for key namespace" — and generates **zero** Applications *for that reconcile*. The existing `storefront-dev-workload` and `storefront-prod-workload` are **untouched** — the factory failed *safe*.
+**What a correct result looks like.** The ApplicationSet reports an **error condition** (`ErrorOccurred`) — "map has no entry for key namespace" — and **changes no Application in that pass**. The existing `storefront-dev-workload`, `storefront-staging-workload`, and `storefront-prod-workload` stay exactly as they were, still `Synced`/`Healthy`. The factory failed *safe*.
+
+> **⏱ Timing.** `argocd appset generate applicationsets/storefront.yaml -o wide` fails with this message the moment your push lands, because it reads Git right now. The condition on the ApplicationSet appears only at the controller's next pass — **up to about 3 minutes** later (78 seconds in testing). If the command below still shows no error, wait a minute and run it again.
 
 ```bash
 kubectl --context k3d-mgmt -n argocd get applicationset storefront \
   -o jsonpath='{.status.conditions}' | tr ',' '\n' | grep -iE 'error|message'
 ```
 
+**Expected output** *(once the controller has run; the same message repeats for all three conditions)*:
+
+```text
+"message":"failed to execute go template {{ .namespace }}: template: base:1:3: executing \"base\" at <.namespace>: map has no entry for key \"namespace\""
+"reason":"RenderTemplateParamsError"
+"type":"ErrorOccurred"}
+...
+```
+
 ![ApplicationSet ErrorOccurred condition citing the missing key (v3.5.2)](../../assets/screenshots/day-2/lab-04-07-appset-error-condition.png)
 
-*Figure SS-L4-07 — the error lives on the **ApplicationSet**, not on any generated Application. **Alpha UI.***
+**▶ In the UI (Alpha):** **ApplicationSets** → `storefront`. **APPSET HEALTH** now shows a broken red heart (`Degraded`). Click the value under **CONDITIONS** to open the panel below.
+
+*Figure SS-L4-07 — The "ApplicationSet conditions" panel: `ErrorOccurred (True)`, `ParametersGenerated (False)`, and `ResourcesUpToDate (False)`, each citing `map has no entry for key "namespace"`. The error lives on the **ApplicationSet**, not on any generated Application — the sidebar still counts the three generated apps as `Synced` and `Healthy`. **Alpha UI.***
 
 <!-- CAPTURE-SPEC: SS-L4-07 — ApplicationSet error condition. State: after E5A push. Highlight: ErrorOccurred + missing-key message; generated apps unchanged. Argo CD v3.5.2 (Alpha UI). -->
 
@@ -106,7 +129,7 @@ kubectl --context k3d-mgmt -n argocd get applicationset storefront \
 argocd appset generate applicationsets/storefront.yaml -o wide
 ```
 
-This time there is **no error** — the ApplicationSet cheerfully renders a `storefront-staging-workload` whose namespace is **empty** (`<no value>` in `-o yaml`) and looks normal in a list; it would fail later, elsewhere, in disguise. Restore strictness and re-preview to watch the loud refusal return:
+This time there is **no error**, and the command exits successfully (exit code `0`). The ApplicationSet cheerfully renders a `storefront-staging-workload` whose namespace is the literal text **`<no value>`**. You can see it in the `NAMESPACE` column, and as `namespace: <no value>` in `-o yaml`. Nothing stopped it. A script or pipeline that only checks "did the command fail?" would pass it, and the problem would surface later, elsewhere, in disguise. Restore strictness and re-preview to watch the loud refusal return:
 
 ```bash
 git checkout -- applicationsets/storefront.yaml
@@ -115,7 +138,14 @@ argocd appset generate applicationsets/storefront.yaml -o wide
 
 **🔍** One line changed, two behaviours. The safer configuration **failed more, sooner, louder — and that is why it is safer.** Which would you rather be handed at 4 p.m. on a Friday?
 
-**Trace it and fix it.** Symptom on the *ApplicationSet* → owner is the *template + generator input* → file `envs/staging/config.yaml` in `storefront-gitops`. Restore the `namespace:` line, commit, push. The error clears and all three generate again.
+**Trace it and fix it.** Symptom on the *ApplicationSet* → owner is the *template + generator input* → file `envs/staging/config.yaml` in `storefront-gitops`. Restore the `namespace:` line, commit, push (`git revert --no-edit HEAD && git push` undoes your last commit). Then confirm the fix straight away with the preview, which reads Git now:
+
+```bash
+cd ~/platform-config
+argocd appset generate applicationsets/storefront.yaml -o wide
+```
+
+Three rows, no error: the fix is in. **The condition on the ApplicationSet can lag behind by up to about 3 minutes.** The controller re-checks this ApplicationSet on a 3-minute schedule, so `ErrorOccurred` stays `True` until its next pass (about 1 minute in testing). The preview and the condition are both honest; the condition is simply an older reading. Do not "fix it again". Wait, then re-run the conditions command and see `ErrorOccurred` go back to `False`.
 
 > **✅ Part A in one line:** the data for one environment was missing a value, so the strict factory **refused to generate** instead of producing a half-empty app. The evidence was on the **ApplicationSet**, and the fix went in the **data file** (`envs/staging/config.yaml`), not in any Application.
 
@@ -125,13 +155,17 @@ argocd appset generate applicationsets/storefront.yaml -o wide
 
 > **▶ Predict first.** After this pushes, will `platform-root` be `Healthy` or `Degraded`? And `platform-quotas`? Two different questions one level apart.
 
-**What a correct result looks like.** `platform-quotas` shows a **ComparisonError** (the repo-server cannot render a nonexistent path). But `platform-root` may still report **`Synced`/`Healthy`** — the root's job was only to *apply the child Application object*, and it did. **Root health does not roll up child health.** A green root over a broken child.
+**What a correct result looks like.** Within about a minute or two of the push, `platform-quotas` shows a **ComparisonError**. The root must first notice your commit, and this course has Argo CD check Git every 60 seconds; in testing it took 6 seconds once and 101 seconds another time. The error reads `quotas-typo: app path does not exist`, and the child's sync status is `Unknown`. Its health still reads `Healthy`, its last known value. `platform-root` reports **`Synced`/`Healthy`**, because the root's job was only to *apply the child Application object*, and it did. **Root health does not roll up child health.** A green root over a broken child.
 
-![platform-root Healthy while platform-quotas shows a ComparisonError (v3.5.2)](../../assets/screenshots/day-2/lab-04-09-child-broken-root-fine.png)
+**▶ See it in the UI:** open **Applications** and type `platform` in the search box. Then click the `platform-quotas` tile, and click the error count under **APP CONDITIONS**, to read the message.
 
-*Figure SS-L4-09 — root health answers "did I apply the child object?", not "is the child healthy?".*
+![Applications list: platform-root Healthy/Synced beside platform-quotas Healthy/Unknown (v3.5.2)](../../assets/screenshots/day-2/lab-04-09-child-broken-root-fine.png)
 
-**🔍 Notice:** the child's error is a **ComparisonError** — a *rendering* failure at the repo-server (same class as Lab 3). The root's status did not change. Editing the child object directly (`kubectl edit`) would revert — the root owns that spec via the file in `apps/`.
+*Figure SS-L4-09 — `platform-root` is `Healthy` and `Synced` while `platform-quotas` is `Unknown`, with path `quotas-typo`. The ComparisonError text is on the child's own page, under APP CONDITIONS. Root health answers "did I apply the child object?", not "is the child healthy?".*
+
+> **⚠️ The root's own page hides it completely.** Open `platform-root`: its tree shows all three child nodes with a green **Synced** check, `platform-quotas` included. From the root's point of view, the child *object* matches Git exactly — the typo is in Git too. You only see the fault by opening the child.
+
+**🔍 Notice:** the child's error is a **ComparisonError** — a *rendering* failure at the repo-server (same class as Lab 3). The root's status did not change. Editing the child object directly (`kubectl edit`) would revert — the root owns that spec via the file in `apps/`. In testing, the root's self-heal put the typo back within about a second.
 
 <!-- CAPTURE-SPEC: SS-L4-09 — child broken, root fine. State: after E5B push. Highlight: platform-quotas ComparisonError vs platform-root Synced/Healthy. Argo CD v3.5.2. -->
 

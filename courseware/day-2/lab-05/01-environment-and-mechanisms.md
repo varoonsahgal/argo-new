@@ -50,6 +50,8 @@ grep -n -A6 "rbac:" platform-config/argocd/values.yaml
 
 ```text
 141:  rbac:
+142-    # No permissions by default: an account that is not named in policy.csv can
+143-    # log in and see nothing. Every grant is written here, deliberately.
 144-    policy.default: ""
 145-    policy.csv: ""
 ```

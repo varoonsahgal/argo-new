@@ -66,7 +66,9 @@ team-a-guestbook              <none>
 |---|---|---|
 | `kubectl delete application <name>` | present | **deleted** (finalizer runs the cascade) |
 | `kubectl delete application <name>` | absent | **survive**, orphaned |
-| `argocd app delete <name>` (default) or the UI's Foreground/Background | absent | **deleted anyway** — the server adds the propagation behaviour |
+| `argocd app delete <name>` (default) or the UI's Foreground/Background | absent | **deleted anyway** — the server adds the finalizer for you as it deletes |
+
+**How far that cascade reaches: one layer.** It deletes the Application's *own* managed resources. For `team-a-guestbook` those are its Deployment and Service. For `platform-root` they are the three child *Application objects* — and because those children carry no finalizer either, their workloads keep running, orphaned (the Lab 4 Exercise 4 Notice).
 
 > **Say the rule out loud:** the deletion danger does not live in the object — it lives in the delete **path**. Whether the workloads die is decided by *how the delete is requested* (the propagation policy the client asks for, or a finalizer running the cascade), not by any field on the Application. An app showing `<none>` for finalizers is not safe; it is one `argocd app delete` away from taking its workloads down with it.
 
@@ -92,7 +94,7 @@ team-a-guestbook              <none>
 | Sync `Phase: Error`, `0s`, `can not be managed when in namespaced mode` | Fence 2b — cluster registration forbids cluster-scoped kinds, reached before the project's allow-lists | Intended in E3B; outside the lab, fix the cluster Secret (`clusterResources`/`namespaces`) |
 | Sync **starts**, `SyncFailed` row, `forbidden` | Fence 3 (Kubernetes RBAC), **not** the AppProject | Fixed on the **workload** cluster (a `Role`/`RoleBinding`); confirm with `auth can-i … --as` |
 | `another operation is already in progress` | A previous sync is still running (a copy kept an automated `syncPolicy`) | `argocd app terminate-op <app>`, remove the `syncPolicy:` block, re-apply |
-| `rbac can` gives the "wrong" answer | Argument order is `can <subject> <action> <resource> <object>` — resource/action swapped vs a `policy.csv` line | Re-run with the correct order; object is `<project>/<app>` |
+| `rbac can` fails with `error in RBAC request: 'sync' is not a valid resource name`, or answers `No` when you expected `Yes` | Argument order is `can <subject> <action> <resource> <object>` — resource/action swapped vs a `policy.csv` line; or the object is not `<project>/<app>` | Re-run with the correct order; object is `<project>/<app>` |
 
 ---
 
@@ -131,16 +133,25 @@ Empty = "none"; a list with `"status":"SyncFailed"` = "one".
 - **Read the sync result — and know where it lives.** Argo CD-side refusal = `Duration: 0s`, empty result; Kubernetes-side = a `SyncFailed` row per resource. That tells you which team to page.
 - **How much a denial tells you depends on what you may see** — Argo CD names the exact rule when you can `get` the object, and says only `permission denied` when you cannot. The full detail is always in the `argocd-server` log (`security=2`).
 - **`rbac can … --policy-file` is a unit test for your permission model**; `--namespace argocd` is the production check.
-- **Deletion danger lives in the delete *path*, not the object.** No Application here carries the cascade finalizer, and a UI/CLI delete would still take the workloads down. Least privilege on `delete` is the boundary that holds.
+- **Deletion danger lives in the delete *path*, not the object.** No Application here carries the cascade finalizer, and a UI/CLI delete would still take that app's own workloads down. Least privilege on `delete` is the boundary that holds.
 
 ---
 
 ## Optional stretch challenges (clearly optional)
 
 1. **Add an explicit `deny` and prove deny precedence.** In Argo CD RBAC a `deny` always beats an `allow`, regardless of order. Add `p, role:team-a, applications, delete, <project>/*, deny`; prove it offline (both a broad `allow` and your `deny` in a scratch file → still `No`) and live.
-2. **Lock the ApplicationSet controller.** Set `applicationsetcontroller.policy: create-update` in the values and re-apply. **Predict:** can a single ApplicationSet still opt into `create-delete`? Confirm, then revert with a reset.
-3. **Add a deny sync window on `storefront`.** `argocd proj windows add storefront --kind deny --schedule "* * * * *" --duration 1h --applications "*"`. With `manualSync` off, even an **admin** manual sync is refused (`cannot sync: blocked by sync window`). Remove it when done.
-4. **Issue a project-role JWT for automation.** `argocd proj role create team-a ci-sync`; `argocd proj role add-policy team-a ci-sync --action sync --permission allow --object 'team-a/*'`; `argocd proj role create-token team-a ci-sync`. Inspect with `argocd proj role get team-a ci-sync` — the safe alternative to a broad admin token, **without ever printing the token**.
+2. **Lock the ApplicationSet controller.** In `~/platform-config/argocd/values.yaml`, add `applicationsetcontroller.policy: create-update` under `configs.params` (the `params:` block, next to `server.insecure`), then apply with the path, as in Exercise 1. Confirm it landed: `kubectl --context k3d-mgmt -n argocd get cm argocd-cmd-params-cm -o jsonpath='{.data.applicationsetcontroller\.policy}'` prints `create-update`. **Predict:** can a single ApplicationSet still opt into `create-delete`? Test it with a scratch ApplicationSet whose Application has nothing to deploy, then delete the scratch ApplicationSet. Revert without losing your Lab 5 work: `git -C ~/platform-config checkout -- argocd/values.yaml`, then run `apply-argocd-config.sh` with no argument (it re-applies `main`, which holds your committed E1 grant).
+3. **Add a deny sync window on `storefront`.** `argocd proj windows add storefront --kind deny --schedule "* * * * *" --duration 1h --applications "*"`. With `manualSync` off, even an **admin** manual sync is refused (`cannot sync: blocked by sync window`). Remove it when done: `argocd proj windows list storefront` shows its `ID` (`0` if it is the only window), then `argocd proj windows delete storefront 0`.
+4. **Issue a project-role JWT for automation.** A *project role* is an identity that lives inside one AppProject; a JWT (JSON Web Token) is the signed credential a CI job presents instead of a password.
+
+   ```bash
+   argocd proj role create team-a ci-sync
+   argocd proj role add-policy team-a ci-sync --action get  --permission allow --object '*'
+   argocd proj role add-policy team-a ci-sync --action sync --permission allow --object '*'
+   argocd proj role get team-a ci-sync
+   ```
+
+   Two details matter. `--object` is the Application name **inside this project** — the CLI adds the `team-a/` prefix itself, so `'*'` becomes `team-a/*` (typing `'team-a/*'` produces `team-a/team-a/*`, which matches nothing). And a role needs `get` as well as `sync`, because the CLI fetches the Application before it syncs it. Then create a token straight into a shell variable, so it is **never printed**: `TOKEN="$(argocd proj role create-token team-a ci-sync -t)"` (`-t` outputs only the token), and pass it to commands with `--auth-token "$TOKEN"`. Predict before you try: which of `argocd app get team-a-guestbook`, `argocd app delete team-a-guestbook`, and `argocd app get storefront-prod-workload` does the token allow? This is the safe alternative to handing automation a broad admin token. Clean up with `unset TOKEN` and `argocd proj role delete team-a ci-sync`.
 
 ---
 

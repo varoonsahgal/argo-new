@@ -752,11 +752,11 @@ shots:
     app: argocd
     auth: admin
     route: /applications/platform-root
-    state: "platform-root tree"
+    state: "platform-root tree right after reset-lab.sh CP-lab-05: root Healthy/Synced; three child Application nodes show a sync check only (no health heart)"
     produced_by: CP-lab-05
     fidelity: full
     highlight:
-      intent: "child Application nodes"
+      intent: "root node and its three child Application nodes"
       selector: ".application-resource-tree"
 
   # --- Lab 04 ---------------------------------------------------------------
@@ -875,13 +875,19 @@ shots:
     app: argocd
     auth: admin
     route: /applicationsets/storefront
-    state: "ApplicationSet summary or events"
+    state: "ApplicationSet conditions panel after E5 Part A's push AND the controller's next pass (up to 3 min): ErrorOccurred / ParametersGenerated / ResourcesUpToDate citing the missing namespace key"
     produced_by: "lab-04 E5 part A"
-    fidelity: panel
+    # v3.5.2 has no .applicationset-conditions element. The status panel's
+    # CONDITIONS value is a button that opens the conditions sliding panel.
+    actions:
+      - click: ".application-status-panel__item-value__status-button"
+      - wait_for: ".sliding-panel--opened .application-conditions"
+      - wait_ms: 1500
+    fidelity: full
     caption_note: "ApplicationSet UI is Alpha since v3.5.0"
     highlight:
       intent: "ErrorOccurred with missing-key message"
-      selector: ".applicationset-conditions"
+      selector: ".sliding-panel--opened .application-conditions"
 
   - id: SS-L4-08
     guide: lab-04
@@ -901,13 +907,16 @@ shots:
     filename: day-2/lab-04-09-child-broken-root-fine.png
     app: argocd
     auth: admin
-    route: /applications/platform-root
-    state: "platform-root tree plus child status"
+    # Verified v3.5.2: the root's own tree shows every child node with a green
+    # Synced check even while platform-quotas has a ComparisonError, so a tree
+    # shot contradicts the caption. The Applications list shows both statuses.
+    route: "/applications?search=platform"
+    state: "Applications list searched 'platform' after E5 Part B's push: platform-root Healthy/Synced, platform-quotas Healthy/Unknown (path quotas-typo), before the wrong-layer patch and the fix"
     produced_by: "lab-04 E5 part B"
     fidelity: full
     highlight:
-      intent: "child ComparisonError vs root status"
-      selector: ".application-resource-tree"
+      intent: "platform-quotas Unknown beside platform-root Synced"
+      selector: ".applications-tiles__item"
 
   - id: SS-L4-10
     guide: lab-04

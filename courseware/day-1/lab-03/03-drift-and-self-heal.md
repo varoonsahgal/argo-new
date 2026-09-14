@@ -12,7 +12,7 @@
 > **🧭 What this exercise is for**
 > - **In plain words:** **drift** means the live cluster no longer matches Git because someone changed it directly. You create drift on purpose (scale the app by hand), then check which of Argo CD's two statuses changes.
 > - **Think of it like:** a thermostat set to 20°. Someone opens a window. The display now shows the room is not at 20° — but in manual mode, the thermostat does not turn the heating on. It reports; it does not act.
-> - **Connects to:** [Session 2 · Module 3](../session-02/03-sync-vs-health.md) — sync ("does it match Git?") and health ("is it working?") are separate questions; and [Session 4 · Module 2](../session-04/02-sync-ordering-and-drift.md) — "drift is discovered, not detected."
+> - **Connects to:** [Session 2 · Module 3](../session-02/03-sync-vs-health.md) — sync ("does it match Git?") and health ("is it working?") are separate questions; and [Session 4 · Module 2](../session-04/02-sync-ordering-and-drift.md) — "drift is discovered, not prevented": your edit goes through, and Argo CD notices it a moment later.
 > - **Big picture:** in a real incident you need to tell "someone changed it" from "it is broken". Which status moved tells you which one you have.
 
 **Goal:** change the running cluster *directly* (behind Argo CD's back) and predict, before you look, **which** status axis moves — and confirm that under manual sync, nothing reverts on its own.

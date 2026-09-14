@@ -87,7 +87,7 @@ All three reached `Synced`/`Healthy` within about 15 seconds in testing (first `
 
 <!-- CAPTURE-SPEC: SS-L4-04/05/06 — ApplicationSets list, AppSet tree, filtered Applications list. State: after E1 apply+sync. Argo CD v3.5.2 (Alpha UI for 04/05). -->
 
-**Success criterion:** preview prints exactly the three rows (prod, and only prod, on `storefront-1.0.0`); after apply, `argocd app list` shows all three reaching `Synced`/`Healthy`; no name contains `<no value>` or `TODO`.
+**Success criterion:** preview prints exactly the three rows (prod, and only prod, on `storefront-1.0.0`); after apply, `argocd app list` shows all three reaching `Synced`/`Healthy`; no column in the preview shows `TODO`.
 
 **Hints:**
 - *Hint 1:* Five TODOs — four pull from generator data (`.env`, `.namespace`, `.targetRevision`, cluster `.name`/`.server`); one is the fixed selector value from Module 1.
@@ -183,7 +183,7 @@ git checkout -- applicationsets/storefront.yaml
 
 **Success criterion:** after removing the prod input, `appset generate` prints two rows while `argocd app list` still lists `storefront-prod-workload`; and you can state in a sentence what an operator must now do about the orphan — retiring prod is a **deliberate** action (`argocd app delete storefront-prod-workload`, or restore the input). "Safe" means "deletion is now a decision, not a reflex."
 
-**Restore prod** before the next module (put `envs/prod/config.yaml` back, commit, push).
+**Restore prod** before the next module (put `envs/prod/config.yaml` back, commit, push). The preview shows three rows again at once. If prod's Application was deleted along the way (see Hint 2), the factory re-creates it at its next pass: about 1 minute in testing, up to about 3 minutes. Confirm with `argocd app list` that all three are `Synced`/`Healthy` before you move on.
 
 **Hints:**
 - *Hint 1:* Both settings live under `spec.syncPolicy` on the *ApplicationSet*, not on the generated apps or the `template.spec.syncPolicy` block.
