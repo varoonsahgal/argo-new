@@ -125,6 +125,36 @@ Two more files live on the VM (not in Git, because they touch credentials): `~/c
 > - **Connects to:** [Session 3 · Module 2](../session-03/02-onboarding-repos-and-clusters.md), section 2 — "Everything Argo CD knows is a labeled Secret."
 > - **Why it matters later:** when a cluster connection breaks in the Capstone, the problem is often one wrong value on one of these cards.
 
+### Confirm the workload cluster exists before registering it
+
+The environment setup already created the workload cluster. In this lab, you will give Argo CD the connection details and permissions it needs to manage that cluster.
+
+First, connect directly using your terminal’s Kubernetes credentials:
+
+```bash
+kubectl --context k3d-workload get nodes
+```
+
+**Expected:** the workload cluster’s node or nodes appear with status `Ready`. This proves your terminal can reach the cluster and retrieve its node information.
+
+Now check which clusters are registered with Argo CD:
+
+```bash
+kubectl --context k3d-mgmt -n argocd get secret -l argocd.argoproj.io/secret-type=cluster
+```
+
+**Expected at this checkpoint:** only `in-cluster` appears.
+
+| What you just checked                        | What it tells you                                                                  |
+| -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Nodes returned from `k3d-workload`           | The workload cluster exists and your terminal can access it                        |
+| Only `in-cluster` is registered with Argo CD | Argo CD has its management-cluster entry, but no workload-cluster registration yet |
+
+**Why the difference?** Your terminal uses your kubeconfig. Argo CD uses its own connection configuration and credentials. Your access is not automatically shared with Argo CD.
+
+In Module 2, E2, you will create a workload identity with limited permissions and store its connection details in Argo CD’s `cluster-workload` Secret.
+
+
 Argo CD's entire knowledge of your repos and clusters is a set of labeled Secrets in the `argocd` namespace. Print the whole "address book" with two commands — **before** you have connected anything.
 
 **▶ Do this now:**
