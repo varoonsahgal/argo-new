@@ -69,6 +69,13 @@ Skeleton files with `TODO` markers are also waiting in the `platform-config` rep
 
 *Figure SS-L2-01 — Settings → Repositories at `CP-lab-02`: "No repositories connected".*
 
+**Why not click “Connect Repo”?** You can—that is a valid way to register a repository. When you enter the connection details through the UI, Argo CD stores them in a labeled Kubernetes Secret.
+
+In this lab, you create that Secret through YAML so you can understand what the UI creates and learn how to reproduce the configuration through automation. The template can be version-controlled while the real password is supplied separately.
+
+You may open the form to compare its fields with the template, but cancel without connecting yet. You will create and verify the connection in Module 2.
+
+
 **🔍 Notice:** the page says **No repositories connected**. There is no `storefront-gitops` row yet. In E1 you will make that row appear, with a green **Successful** connection status.
 
 > **Already seeing a `storefront-gitops` row, or a `http://lab-gitea:3000/course/` row under "Credentials template URL"?** Then your environment still holds objects from a later lab, and section 1 would have shown a `FAIL` row. Run `reset-lab.sh CP-lab-02 --local`, then refresh this page. This lab only makes sense if you start empty.
