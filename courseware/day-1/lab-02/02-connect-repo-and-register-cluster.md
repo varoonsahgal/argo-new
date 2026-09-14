@@ -303,23 +303,23 @@ kubectl --context k3d-workload -n storefront-dev get roles,rolebindings
 
 The first command should find the ServiceAccount. The second should show the resources from the RBAC manifest. These checks establish that the objects exist; the next module tests what the identity can actually do.
 
-### Move B — read the credential from the workload cluster
+### Move B — understand how the credentials reach Argo CD
 
-**Your task:** identify the source of the credential. The Secret `argocd-manager-token` (namespace `argocd-access`) holds two fields the helper needs:
+**There is nothing to run in this step.** Move A created an identity and permissions on the workload cluster. Argo CD now needs that identity’s credentials to use it.
 
-- the **bearer token** = the *decoded* value of the Secret's `token` field.
-- the **CA data** = the Secret's `ca.crt` field used **as-is** (already base64-encoded, which is what `caData` expects).
+The **helper** is the supplied Python script, `module2-connection-helper.py`. In Move C, it will:
 
-**The supplied helper will read both values into memory in Move C. Do not extract or display them manually.** The token is a secret credential; the CA certificate is public trust information, not a password.
+1. Read `argocd-manager-token` from the workload cluster’s `argocd-access` namespace.
+2. Collect the **token** used to authenticate and the **CA certificate** used to verify the workload server.
+3. Store those values in a connection Secret on the management cluster, where Argo CD can read them.
 
-| Source field in the workload Secret | Transformation | Destination in the connection Secret's JSON `config` |
-| --- | --- | --- |
-| `.data.token` | Decode base64 once | `bearerToken` |
-| `.data.ca.crt` | Keep its existing base64 representation | `tlsClientConfig.caData` |
+**How does the connection work?** Argo CD runs on management and sends requests to the workload cluster’s Kubernetes API at `https://k3d-workload-server-0:6443`. It uses the CA certificate to verify the server and presents the token to authenticate as `argocd-manager`. The workload cluster checks that identity’s Roles and RoleBindings before allowing an action, such as creating a Deployment.
 
-The two fields are handled differently because their destination fields expect different formats. Base64 decoding does not decrypt anything.
+The helper prepares this connection information. **Argo CD makes the ongoing API requests itself; the helper does not need to keep running.** Creating the Secret registers the destination; a later Application tells Argo CD what to deploy there.
 
-**Checkpoint:** which cluster holds this source Secret? The helper's `--source-context` must refer to that cluster. It retrieves the Secret as JSON, so you do not need to write JSONPath expressions or base64 shell commands.
+**Why use the helper?** It handles credential copying and formatting without requiring you to display the token or save it in a completed YAML file. It is lab automation, not an Argo CD component.
+
+**Checkpoint:** the credential source is `k3d-workload`; the connection Secret’s destination is `k3d-mgmt`.
 
 ### Move C — store the connection on the management cluster
 
