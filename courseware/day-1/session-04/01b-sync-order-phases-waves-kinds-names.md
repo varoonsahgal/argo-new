@@ -1,59 +1,33 @@
-# Session 4 · Module 1.5 — Deploy in the Right Order
+# Session 4 · Module 1.5 — Why Is My Deployment Waiting?
 
-> **Day 1 · Session 4 · ~20 minutes · concept + hands-on**
+> **~15–20 minutes · one mistake · one-line fix**
 >
-> **Goal:** find what is blocking a sync and fix the ordering through Git.
+> **Course environment:** Argo CD `v3.5.2`, management cluster `k3d-mgmt`.
 >
-> **Practice environment:** Argo CD on `k3d-mgmt`, deploying a separate Application into the `sync-order` namespace.
+> **Goal:** explain why Argo CD is waiting, then fix the dependency order in Git.
 
-## 1. What is the point?
+## 1. Why this matters
 
-A deployment can contain valid YAML and still get stuck. A Job might need configuration that has not been created yet, or an application might start before its database migration finishes.
+Your application can have correct YAML and still fail to start. A task might need configuration that has not arrived, or new application code might need a database migration to finish first.
 
-In Module 1, you saw how Argo CD obtains Kubernetes YAML. Now you will control **what happens first when it applies that YAML**.
+**Deploying the right resources is only half the job. Their prerequisites must be ready too.**
 
-You will start with a working practice app, add a Job with a deliberately incorrect order, and fix it. The question to keep asking is:
+In this exercise there are only two resources:
 
-> **What must be available before this resource can work?**
-
-### How this connects to auto-sync and self-heal
-
-| Feature | Question it answers |
+| Resource | Its job |
 | --- | --- |
-| Automated sync | Should changes in Git deploy automatically? |
-| Self-heal | Should direct cluster changes trigger automatic correction too? |
-| Phases and waves | Once a sync starts, what happens first, and what must finish before continuing? |
+| ConfigMap `cache-settings` | Holds a setting called `CACHE_TARGET`. |
+| Job `warm-cache` | Reads that setting and runs a short task. |
 
-This exercise uses **manual sync** so you can observe each operation. Phases and waves work inside the sync, regardless of how it was started.
+The task simulates warming a cache by printing messages and pausing for three seconds. There is no database, web server, or real cache to configure.
 
-## 2. The rules you need
+![A Job needs a ConfigMap before its container can start](../../assets/diagrams/session-04/01-dependency.svg)
 
-**Created does not mean ready.** Kubernetes can create a Job immediately while its task takes another minute to finish. A Deployment can exist while its Pods are still starting.
+**The dependency:** the Job needs the ConfigMap. Kubernetes cannot start its container without that required setting.
 
-Argo CD provides two controls for organizing that work:
+## 2. One rule: lower waves go first
 
-| Control | Meaning | Example |
-| --- | --- | --- |
-| **Phase** | A stage of the deployment | Run a migration before applying the app. |
-| **Wave** | A numbered group within a phase | Apply configuration in wave `0`, then a dependent Job in wave `1`. |
-
-### Phases: before, during, after
-
-| Phase | What happens |
-| --- | --- |
-| `PreSync` | Hooks run before the main deployment and must succeed. |
-| `Sync` | Normal application resources are applied. |
-| `PostSync` | Hooks run after the main deployment succeeds and its required health checks pass. |
-
-A **hook** is a resource, commonly a Job, assigned to one of these stages using an annotation:
-
-```yaml
-metadata:
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-```
-
-### Waves: numbered groups with a waiting boundary
+Argo CD lets you assign a **wave number** to a resource:
 
 ```yaml
 metadata:
@@ -61,234 +35,153 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 ```
 
-- Lower wave numbers go first **within the same phase**.
-- Normal resources have phase `Sync`; an omitted wave defaults to `0`.
-- An earlier wave can block later waves while resources are unhealthy or unfinished. A Job must complete; a ConfigMap has no running process to wait for.
+A wave is a numbered group within a sync phase. Lower waves are processed first; an unfinished earlier wave can block later ones. A Job must complete before Argo CD can move past its wave.
 
-The full ordering rule is **phase → wave → kind → name**. Kind and name break ties within a wave. Do not rely on alphabetical names to make one resource become ready before another starts. [Argo CD phases and waves](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/sync-waves/)
+Both resources here are ordinary `Sync`-phase resources. There are no hooks. You only need to compare their wave numbers. [Argo CD sync waves](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/)
 
-> **Example:** a `PostSync` Job in wave `-10` still runs after a normal Deployment in wave `0`. Phase is checked first.
+> **Keep the controls separate:** auto-sync determines whether Git changes trigger deployment automatically. Waves control the order once deployment starts. This exercise uses manual sync so you can see each step.
 
-## 3. Start with a working practice app
+## 3. Prepare once
 
-**Purpose:** establish a healthy baseline before introducing the ordering mistake.
+The setup helper and its two manifests are distributed with the Session 4 course files, under `~/course/lab-files/session-04/sync-waves-simple/`.
 
-Use your configured lab terminal, your existing `hello-reconcile` checkout, and the supplied course files. The Argo CD CLI should already be logged in. `lab-gitea` must resolve from this terminal.
-
-### A. Add the practice files
-
-These steps assume a first run: no existing `sync-order-lab` Application or `sync-order` namespace. A previous run can leave the ConfigMap present and hide the intended failure. If repeating the exercise, use the cleanup commands at the end first.
+If the helper folder is missing on an existing setup, run this **from the root of your updated `argo-new` course repository checkout** first:
 
 ```bash
-cd ~/hello-reconcile
-git pull --ff-only
-mkdir -p sync-order-lab
-cp ~/course/lab-files/session-04/sync-order-lab/*.yaml sync-order-lab/
-git add sync-order-lab
-git commit -m "Add sync-order-lab practice app"
-git push
+mkdir -p ~/course/lab-files/session-04
+cp -R courseware/environment/lab-files/session-04/sync-waves-simple ~/course/lab-files/session-04/
 ```
 
-If prompted, use the same Gitea credentials as Lab 1: username `student` and the password supplied in `~/course/credentials/gitea-student.txt`.
-
-For a repeat run, also remove any previous `09-warm-cache.yaml` and `10-cache-settings.yaml` practice files before committing this baseline. Do not remove unrelated work.
-
-### B. Create and sync the Application
+Use your configured lab terminal, with Git credentials, a logged-in Argo CD CLI, and the existing `~/hello-reconcile` checkout. Load the environment:
 
 ```bash
-argocd app create sync-order-lab \
-  --repo http://lab-gitea:3000/course/hello-reconcile.git \
-  --path sync-order-lab \
-  --revision main \
-  --dest-server https://kubernetes.default.svc \
-  --dest-namespace sync-order \
-  --sync-option CreateNamespace=true
-
-argocd app sync sync-order-lab
+source ~/argo-lab-env.sh
+cd ~/course/lab-files/session-04/sync-waves-simple
+bash practice.sh prepare
+source run.env
 ```
 
-**Same repository, separate Application:** `hello-reconcile` reads `chart/`. This Application reads the plain YAML in `sync-order-lab/` and deploys it into `sync-order`. No automated sync policy is enabled.
+**What the helper does:** clones a fresh working copy, creates a new practice branch with just these two manifests in the Application's source folder, pushes it, and creates a uniquely named manual-sync Application and namespace destination. It does not alter your existing checkout or `main` branch. Git may request the same credentials as earlier labs.
 
-Watch for the three stages:
+`run.env` stores your practice names: `$APP` is the Application, `$NS` its namespace, and `$WORKTREE` your new Git checkout. Keep using this terminal.
 
-| Stage | What to notice |
-| --- | --- |
-| `PreSync` | The `db-migrate` hook completes first. |
-| `Sync` | Configuration and web resources are applied in their waves. |
-| `PostSync` | The `smoke-test` hook runs after the main resources are ready. |
+If preparation fails, stop at that error. To retry from a fresh run, use `bash practice.sh cleanup`, then prepare again. The helper reads the Mac/VM-accessible Git URL from your existing checkout; Argo CD uses the lab's internal `lab-gitea` URL.
 
-Check the result:
+## 4. Predict, then watch it get stuck
+
+Open the two files:
 
 ```bash
-argocd app get sync-order-lab
+cd "$WORKTREE"
+cat "$APP/job.yaml"
+cat "$APP/settings.yaml"
 ```
 
-**Checkpoint:** the Application should be `Synced` and `Healthy`, with a successful operation. Resolve a baseline failure before continuing.
+Find the Job's `configMapRef` naming `cache-settings`, then compare the waves:
 
-## 4. Introduce the mistake—and follow the waiting chain
+| Resource | Wave |
+| --- | ---: |
+| Job `warm-cache` | 1 |
+| ConfigMap `cache-settings` | 2 |
 
-### A. Add a Job and its configuration
+**Predict:** the Job goes first, but its configuration comes later. Can the Job finish?
+
+Start the sync:
 
 ```bash
-cd ~/hello-reconcile
-cp ~/course/lab-files/session-04/teammate-change/*.yaml sync-order-lab/
-git add sync-order-lab
-git commit -m "Add cache warm-up with incorrect ordering"
-git push
+argocd app sync "$APP" --timeout 40
 ```
 
-Read the two new files:
+**Expected:** the command eventually times out. The Argo CD operation is still running; the CLI timeout only stops waiting for it.
+
+You will inspect the operation and the waiting Pod from the terminal in the next step.
+
+## 5. Follow the evidence
+
+**What is Argo CD waiting for?**
 
 ```bash
-cat sync-order-lab/09-warm-cache.yaml
-cat sync-order-lab/10-cache-settings.yaml
+argocd app get "$APP" --show-operation
 ```
 
-Find these details:
+Look for a running operation waiting for `warm-cache` to become healthy.
 
-| Resource | Wave | What it needs |
-| --- | --- | --- |
-| Job `warm-cache` | `1` | Loads environment variables from ConfigMap `cache-settings`. |
-| ConfigMap `cache-settings` | `2` | Must wait until Argo CD can advance past wave `1`. |
-
-In the Job's container configuration, this reference establishes the dependency:
-
-```yaml
-envFrom:
-  - configMapRef:
-      name: cache-settings
-```
-
-**Predict:** can the Job finish before its required ConfigMap exists? Can Argo CD reach wave `2` before the Job finishes?
-
-### B. Run the sync
+**Why can't the Job finish?**
 
 ```bash
-argocd app get sync-order-lab --refresh
-argocd app sync sync-order-lab --timeout 40
+kubectl --context k3d-mgmt -n "$NS" describe pods -l job-name=warm-cache
 ```
 
-The CLI stops waiting after 40 seconds. **That timeout does not cancel the operation running in Argo CD.**
-
-### C. Ask three questions
-
-**1. What is Argo CD waiting for?**
-
-```bash
-argocd app get sync-order-lab --show-operation
-```
-
-Look for an operation still `Running` and a message naming `warm-cache`, such as:
-
-```text
-waiting for healthy state of batch/Job/warm-cache
-```
-
-**2. Why can the Job not finish?**
-
-```bash
-kubectl --context k3d-mgmt -n sync-order get pods
-```
-
-Look for the `warm-cache` Pod with status `CreateContainerConfigError`.
-
-**3. Which configuration is missing?**
-
-```bash
-kubectl --context k3d-mgmt -n sync-order describe pods -l job-name=warm-cache
-```
-
-In **Events**, look for a message such as:
+Look under **Events** for a message such as:
 
 ```text
 Error: configmap "cache-settings" not found
 ```
 
-Exact output and Pod names vary. These are the observations to find, not a verbatim transcript.
+The container may show `CreateContainerConfigError`. If you see an image-pull or other error instead, resolve that before interpreting the result as the intended missing-configuration problem.
 
-### Explain the blockage
+![Before and after: the circular wait is removed by moving the ConfigMap to wave zero](../../assets/diagrams/session-04/02-before-after.svg)
 
-**The Job waits for the ConfigMap. Argo CD waits for the Job before creating the ConfigMap.** This circular wait is a deadlock.
+**What happened?** The Job needs the ConfigMap. Argo CD waits for the Job before reaching the ConfigMap's wave. Each blocks the other—a circular wait, also called a deadlock.
 
-Argo CD follows the wave numbers you supplied; it does not infer the dependency and move the ConfigMap earlier. With no deadline ending the operation and no external change creating the ConfigMap, it keeps waiting.
+## 6. Fix one number in Git
 
-## 5. Fix the order through Git
-
-### A. Stop the stuck operation
+Stop the old operation so you can sync the corrected revision:
 
 ```bash
-argocd app terminate-op sync-order-lab
+argocd app terminate-op "$APP"
 ```
 
-The operation was started against the earlier revision. Stop it so you can start a new sync with the corrected configuration. The ordinary `warm-cache` Job should remain available to recover when its configuration appears.
-
-### B. Move the prerequisite earlier
-
-Open `sync-order-lab/10-cache-settings.yaml` and change its wave from `"2"` to `"0"`:
+Open **`settings.yaml` inside the `$APP` folder in `$WORKTREE`**. Change only the ConfigMap's wave from `"2"` to `"0"`:
 
 ```yaml
-metadata:
-  name: cache-settings
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
+argocd.argoproj.io/sync-wave: "0"
 ```
 
-Keep the rest of the file unchanged. Leave the Job in wave `1`.
-
-| Before | After |
-| --- | --- |
-| Wave 1: Job waits for missing configuration | Wave 0: ConfigMap is created |
-| Wave 2: ConfigMap cannot be reached | Wave 1: Job can start and complete |
-
-### C. Commit and sync the fix
+Leave the Job in wave `1`. Commit and deploy the fix:
 
 ```bash
-git add sync-order-lab/10-cache-settings.yaml
-git commit -m "Move cache-settings before warm-cache"
+git add "$APP/settings.yaml"
+git commit -m "Create settings before the Job needs them"
 git push
-argocd app get sync-order-lab --refresh
-argocd app sync sync-order-lab
+argocd app get "$APP" --refresh
+argocd app sync "$APP" --timeout 120
 ```
 
-If Argo CD says an operation is still in progress, wait for termination to finish and retry the sync.
+If the previous operation is still terminating, wait briefly and retry the sync.
 
-### D. Verify recovery
+Check the task's output:
 
 ```bash
-kubectl --context k3d-mgmt -n sync-order logs job/warm-cache
-argocd app get sync-order-lab
+kubectl --context k3d-mgmt -n "$NS" logs job/warm-cache
 ```
 
-Expected Job log:
+Expected:
 
 ```text
 warming cache for web
 cache warm
 ```
 
-**Success:** the Job completes, the sync succeeds, and the Application returns to `Synced` and `Healthy`.
+**Success:** the Job completes and the sync succeeds. Creating the missing ConfigMap allows Kubernetes to retry starting the waiting container. You did not need to delete the Job.
 
-Once the ConfigMap exists, Kubernetes can retry starting the waiting container. You corrected the prerequisite rather than manually restarting the workload.
+## 7. Say the lesson in one sentence
 
-### Explain what you learned
+> **Put prerequisites before the resources that need them. When a sync waits, find what is waiting for what.**
 
-| Question | Answer |
-| --- | --- |
-| Why could the Job not finish? | Its required ConfigMap did not exist. |
-| Why could Argo CD not create that ConfigMap? | It was in a later wave blocked by the unfinished Job. |
-| Why did the fix work? | The prerequisite was moved before its dependent resource. |
+Check your understanding:
 
-> **Keep this troubleshooting habit:** read what Argo CD is waiting for, inspect what that resource needs, then check where the prerequisite is scheduled.
+- Why didn't restarting the sync with the same Git configuration solve it? **The dependency order was still wrong.**
+- What changed when you moved the ConfigMap to wave `0`? **It could be created before Argo CD waited for the Job in wave `1`.**
 
-### Clean up
+**Where phases fit:** `PreSync` hooks run before the main deployment; normal resources use `Sync`; `PostSync` hooks run after successful deployment and health checks. Waves order resources inside those stages. The full rule is **phase → wave → kind → name**. You have now practiced the wave boundary that makes ordering useful.
 
-Remove only the practice Application and namespace:
+## Clean up
 
 ```bash
-argocd app delete sync-order-lab --yes
-kubectl --context k3d-mgmt delete namespace sync-order --ignore-not-found
+bash "$PACKAGE_DIR/practice.sh" cleanup
 ```
 
-The practice files can remain in Git. They are outside the `chart/` path used by `hello-reconcile`.
+This removes this run's Application and namespace. The practice Git branch and checkout remain as your record. Preparing again creates fresh names, so old resources cannot hide the mistake.
 
 **Next:** [Module 2 — Sync ordering and drift](02-sync-ordering-and-drift.md).
