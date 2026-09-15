@@ -31,6 +31,12 @@ Keep that question in mind. First, collect the evidence using the application al
 
 **Purpose:** show that running Kubernetes resources and a Helm release record are different things.
 
+Reminder: this application comes from a Helm chart. In the hello-reconcile repository, the chart/ folder contains the templates and values used to generate the application’s Kubernetes resources. The Argo CD Application points to that folder.
+
+Argo CD uses Helm to turn those templates into Kubernetes YAML, then deploys the resulting resources itself.
+
+Now investigate: the application uses a Helm chart and its Pods are running—so will Helm show a release for it?
+
 Use the terminal configured for your lab, with access to the `k3d-mgmt` context. These commands inspect the existing `hello-reconcile` application in the `hello` namespace.
 
 ### Step A — Ask Kubernetes what is running
