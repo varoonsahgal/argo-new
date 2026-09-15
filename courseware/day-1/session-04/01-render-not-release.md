@@ -297,6 +297,16 @@ They manually edit the live Deployment to use the previous image. The applicatio
 
 **For this scenario, automated sync and self-heal are enabled.** Git still specifies the broken image, so Argo CD restores that configuration. Without self-heal, detecting a live edit alone does not normally trigger an automatic correction; a later sync can still overwrite it. [Argo CD automatic self-healing](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/#automatic-self-healing)
 
+Self-heal exists because a cluster can change even when Git hasn’t changed.
+
+Someone might:
+
+Manually change an image while troubleshooting.
+Accidentally delete a Deployment.
+Change a replica count and forget to restore it.
+
+With auto-sync alone, Argo CD can notice the mismatch but leave it until another sync happens. Self-heal lets Argo CD automatically restore the desired configuration without waiting for a Git change.
+
 | Location | Image after the manual edit |
 | --- | --- |
 | Desired configuration in Git | Broken image |
