@@ -1,132 +1,323 @@
-# Session 4 · Module 1 — Render, Not Release
+# Session 4 · Module 1 — The App Is Running. Where Is the Helm Release?
 
 > **Day 1 · Session 4 · Module 1 of 3 · ~20 minutes · concept + hands-on**
-> **Goal:** understand the one fact the whole session hangs on — Argo CD renders Helm charts but creates no Helm release — and how values combine.
+>
+> **Your mission:** explain why a running application can be missing from `helm list`, then predict which configuration value Helm will use.
+>
+> **What you will do:** inspect an existing application, render a chart locally, and see an override win. The commands in this module do not deploy changes.
+
+By the end, you should be able to answer two practical questions:
+
+- **Who deployed this application: Helm or Argo CD?** This determines which release-management tools apply.
+- **Where did this configuration value come from?** This determines what you must change to get the result you want.
 
 ---
 
-## 1. Why this matters: the rollback that does nothing
+## 1. The mystery: Helm cannot find the running application
 
-An engineer is paged: the `storefront` app is misbehaving after a bad release. They know Helm, so they run:
+The `storefront` application starts failing after an image update.
+
+An engineer tries `helm rollback` to restore the previous version. Helm cannot find the release.
+
+“But we deployed a Helm chart!”
+
+They check `helm list`. No `storefront` release appears.
+
+> **Pause and predict:** does this mean the application was never deployed—or that something else deployed it?
+
+Keep that question in mind. First, collect the evidence using the application already running in your lab.
+
+## 2. Collect the evidence: Kubernetes sees it, Helm does not
+
+**Purpose:** show that running Kubernetes resources and a Helm release record are different things.
+
+Use the terminal configured for your lab, with access to the `k3d-mgmt` context. These commands inspect the existing `hello-reconcile` application in the `hello` namespace.
+
+### Step A — Ask Kubernetes what is running
 
 ```bash
-helm rollback storefront
+kubectl --context k3d-mgmt -n hello get deployments,pods
 ```
 
-Nothing happens — there is **no release history**. `helm list` in the namespace is **empty**, even though a Helm chart is clearly running. So they hand-edit the live Deployment to the previous image with `kubectl edit`. It works for a minute — then **flips back** to the broken image, on its own. They edit again; it reverts again. The cluster appears to be fighting them.
+**Look for:** the `hello-reconcile` Deployment and its running Pod. The Pod's generated name will vary.
 
-Nothing is broken. All three surprises come from one fact about how Argo CD uses Helm:
-- No release to roll back **because Argo CD never created one.**
-- `helm list` empty **for the same reason.**
-- The Deployment reverts **because Argo CD holds the cluster to what Git says.**
+The Deployment describes the workload Kubernetes should maintain; the Pod is where its container runs.
 
----
+### Step B — Ask Helm for its release records
 
-## 2. Argo CD borrows Helm's typewriter, not its filing cabinet
-
-Helm does two very different jobs:
-1. **A templating engine** — takes a chart (templates + values) and produces finished Kubernetes YAML. Think **typewriter**: values in, finished pages out.
-2. **A release manager** — `helm install`/`helm upgrade` *apply* those pages *and* record a numbered release in a Secret. Think **filing cabinet** of every version. `helm rollback` and `helm list` read that cabinet.
-
-> **Argo CD borrows Helm's typewriter and throws away Helm's filing cabinet.**
-
-Concretely: Argo CD runs `helm template` to render the chart, then **Argo CD itself** applies the manifests and tracks them like any other resource. It does **not** run `helm install`/`upgrade`. No numbered release exists. That single choice explains four consequences:
-
-1. **No Helm release** — `helm list` in the namespace is empty, forever. That empty output is *proof the model works*, not a bug.
-2. **`helm rollback` does not exist here** — "rolling back" means reverting a commit in Git, because Git is the version record.
-3. **Helm hooks are re-interpreted, not run by Helm** — a `helm.sh/hook` annotation maps onto Argo CD's own phase model (Module 2).
-4. **A chart that renders a fresh random value every render can never settle** — Argo CD re-renders on a schedule, so a `randAlphaNum` value differs every comparison → permanently `OutOfSync`. Fix is in the chart, not Argo CD.
-
-> **One honest boundary.** This does *not* mean "Argo CD does not use Helm." It uses Helm heavily — the binary, the templating, values semantics, `--set`. What it declines is Helm's *release lifecycle*.
-
----
-
-## 3. Prove it: a running chart with no Helm release
-
-**▶ Do this now — ask Helm for its releases in the namespace where a chart is running.**
+Check the **same cluster and namespace**:
 
 ```bash
 helm list --kube-context k3d-mgmt -n hello
 ```
 
-**Expected output** (a header, and **no rows**):
+**Expected lab output:** column headings with no release rows.
 
 ```text
-NAME    NAMESPACE       REVISION        UPDATED STATUS  CHART   APP VERSION
+NAME    NAMESPACE    REVISION    UPDATED    STATUS    CHART    APP VERSION
 ```
 
-**🔍 Notice:** `hello-reconcile` is a Helm chart, it is running in the `hello` namespace, and yet Helm reports **zero releases**. Argo CD rendered the chart and applied it itself — it never ran `helm install`, so there is nothing in Helm's filing cabinet. This empty output is exactly what the paged engineer saw.
+### Step C — Explain the apparent contradiction
 
----
+| Evidence | What it tells you |
+| --- | --- |
+| Kubernetes shows a Deployment and Pod. | The application's resources exist. |
+| Helm lists no release for the application. | Helm has no listed release record for it. |
 
-## 4. The precedence ladder — which value wins
+**The missing release is the clue:** Argo CD created these resources without creating a Helm release.
 
-When the same key is set in several places, priority (not proximity) decides. Highest first:
+This is the expected result for this lab. Other applications installed directly with Helm could have release records in the same namespace. An empty list by itself does not prove who deployed an arbitrary workload; here, you already know Argo CD manages `hello-reconcile`.
 
-```text
-  ▲ HIGHEST PRIORITY (wins)
-  │  1. parameter     spec.source.helm.parameters   (like `helm --set replicaCount=4`)
-  │  2. valuesObject  spec.source.helm.valuesObject  (inline values in the Application)
-  │  3. valueFiles    spec.source.helm.valueFiles    (e.g. envs/dev/values.yaml)
-  │  4. chart default the chart's own values.yaml
-  ▼ LOWEST PRIORITY (fallback)
+## 3. The explanation: rendering and deploying are separate jobs
+
+A **Helm chart** is a package containing Kubernetes templates and default values. A template has placeholders; values provide the choices to fill them in.
+
+For example, a Deployment template might contain:
+
+```yaml
+spec:
+  replicas: {{ .Values.replicaCount }}
 ```
 
-Almost all day-to-day customization uses `valueFiles` (rung 3) — one chart, one values file per environment. Parameters (rung 1) are for surgical, per-Application overrides.
+If the supplied value is:
 
-**▶ Do this now — watch the top rung beat a values file.** Clone the storefront repo (same pattern Lab 2 used), then render with an override:
-
-```bash
-cd ~ && git clone http://lab-gitea:3000/course/storefront-gitops.git 2>/dev/null; cd storefront-gitops
-helm template storefront charts/storefront -f envs/dev/values.yaml --set replicaCount=4 | grep 'replicas:'
+```yaml
+replicaCount: 4
 ```
 
-**Expected output:**
+Helm produces:
 
-```text
+```yaml
+spec:
   replicas: 4
 ```
 
-**🔍 Notice:** the `dev` values file sets `replicaCount: 1`, but the parameter (`--set replicaCount=4`) sits at the top of the ladder and wins. In an Argo CD Application this same override is written declaratively as a `spec.source.helm.parameters` entry — same mechanism, source of truth in Git.
+**Rendering means producing that final YAML.** Rendering alone has not created a Deployment or started any Pods.
 
----
+Helm can also install the rendered resources and maintain a **release**: a named installation with revision records used by Helm's management commands.
 
-## 5. One warning to carry into Day 2: Helm's version is part of your desired state
+Argo CD uses Helm to render the chart with `helm template`. Argo CD then manages synchronization of the rendered resources itself. It does not run `helm install` or `helm upgrade` for the application. [Argo CD Helm integration](https://argo-cd.readthedocs.io/en/latest/user-guide/helm/)
 
-Because Argo CD *is* the thing running Helm, the **Helm version it renders with is part of your desired state.**
+```mermaid
+flowchart TD
+    A["Helm chart + values"] --> B{"Who manages deployment?"}
+    B --> C["Helm install or upgrade"]
+    B --> D["Argo CD"]
+    C --> E["Helm renders and applies YAML"]
+    E --> F["Kubernetes resources + Helm release record"]
+    D --> G["Helm template renders YAML"]
+    G --> H["Argo CD sync applies YAML"]
+    H --> I["Kubernetes resources; no Helm release created"]
+```
 
-> Argo CD `v3.5` moved its bundled renderer to **Helm 4** (`4.2.1`) as the **only** Helm binary. Helm 4 changed how `null`/nil values coalesce. Effect: **the same chart with the same values can render *different* manifests after you upgrade Argo CD alone** — most visibly for charts that relied on nulls being dropped.
+| Question | Installed directly with Helm | Deployed by Argo CD from a Helm chart |
+| --- | --- | --- |
+| What renders the templates? | Helm | Helm, invoked by Argo CD |
+| What manages application of the resources? | Helm | Argo CD |
+| Is a Helm release created? | Yes | No |
+| Can Helm roll back that installation? | Using its available release history | No Helm release exists for it to roll back |
 
-Picture it: you upgrade Argo CD on Monday, touch no chart and no values, and Tuesday forty apps show a diff nobody committed. Under "Argo CD runs Helm" this is inexplicable; under the typewriter model it is obvious — **you replaced the typewriter, so the pages came out different.** The cheap practice: **before upgrading Argo CD, render your real charts with the new Helm and `diff` the output** (Session 7). Your VM's `helm` is pinned to `v4.2.1` so local renders match the repo-server.
+> **Remember:** “Uses a Helm chart” tells you how YAML is generated. You still need to know who manages deployment.
 
-> One gotcha: because Helm 4 is the only renderer in `v3.5`, setting `spec.source.helm.version: v3` is **ignored** — there is no "render with Helm 3" switch anymore.
+### Find the two jobs in Argo CD's architecture
 
----
+![Official Argo CD architecture diagram showing the repository server, application controller, repositories, and target cluster](https://argo-cd.readthedocs.io/en/stable/assets/argocd_architecture.png)
 
-## 6. Quick Checks
+*Graphic source: [Argo CD architectural overview](https://argo-cd.readthedocs.io/en/stable/operator-manual/architecture/). The image loads from the official documentation and requires internet access.*
 
-**S4-QC1 — Which value wins?** Chart default `1`, `valueFiles` `2`, `valuesObject` `3`, `parameters` `4`. Rendered replica count?
+**Your task:** find **Repo Server** and **Application Controller** in the graphic.
 
-<details>
-<summary>Show answer</summary>
+- **Repo Server:** retrieves the source and generates the Kubernetes manifests, including rendering Helm charts.
+- **Application Controller:** compares desired resources with live resources and manages synchronization.
 
-**`4`.** The ladder (highest first) is parameter → valuesObject → valueFiles → chart default. `parameters` sits at the top, so `4` overrides all three lower sources. Same key in multiple places is resolved by *priority*, not proximity.
-</details>
+The first produces the instructions; the second manages bringing the cluster into agreement with them.
 
-**S4-QC2 — Forty apps drift and nobody committed anything.** You upgrade Argo CD Monday, touch no chart/values, and Tuesday forty apps show a diff. What happened, and what one cheap Monday step would have caught it?
+## 4. Try it: render four replicas without deploying four Pods
 
-<details>
-<summary>Show answer</summary>
+**Purpose:** experience the boundary between generating YAML and changing a cluster.
 
-**Argo CD's bundled Helm version changed, so the same charts rendered different manifests** (Helm 4 coalesces nulls differently). You changed the *renderer*, not the desired state — and because Argo CD renders with `helm template` and applies the result, **Helm's version is part of your desired state.** The cheap step: **render your real charts with the new Helm and `diff` before upgrading.**
-</details>
+### Step A — Open the repository
 
----
+If you already have the lab checkout:
 
-## 7. Key takeaways
+```bash
+cd ~/storefront-gitops
+```
 
-- **Argo CD borrows Helm's templating engine and throws away Helm's release manager** — `helm template`, then applies it itself. No release, no history, nothing for `helm rollback`. The empty `helm list` is proof.
-- **Values resolve by a ladder:** parameter → valuesObject → valueFiles → chart default (highest first). Environment differences normally live in `valueFiles`.
-- **Helm's version is part of your desired state** — upgrading Argo CD can change rendered manifests with no Git change.
+If you have not cloned it yet, use these commands instead:
 
-**→ Next:** [1.5 — The running order: phases, waves, kinds, and names](01b-sync-order-phases-waves-kinds-names.md)
+```bash
+git clone http://lab-gitea:3000/course/storefront-gitops.git ~/storefront-gitops
+cd ~/storefront-gitops
+```
+
+> **Where to run this:** use the lab terminal where `lab-gitea` resolves. It is a lab hostname, not a public Git host. If your Mac reports `Could not resolve host: lab-gitea`, use the configured lab terminal or the Git address supplied by your Mac setup instructions. Do not continue until you can open the repository.
+
+### Step B — Render the development configuration
+
+```bash
+helm template storefront charts/storefront \
+  -f envs/dev/values.yaml |
+  grep 'replicas:'
+```
+
+| Command part | Meaning |
+| --- | --- |
+| `helm template` | Generate Kubernetes YAML locally. |
+| `storefront` | Supply the name used during rendering; this does not create a release. |
+| `charts/storefront` | Read this chart directory. |
+| `-f envs/dev/values.yaml` | Use the development values file, with the path relative to your current directory. |
+| `grep 'replicas:'` | Display only matching lines from the generated YAML. |
+
+**Expected for the supplied development configuration:**
+
+```yaml
+  replicas: 1
+```
+
+If your checkout has already been edited, its value may differ. Inspect `envs/dev/values.yaml` before proceeding.
+
+### Step C — Predict, then add an override
+
+The development file supplies `replicaCount: 1`. The next command also supplies `replicaCount=4`.
+
+**Predict:** will the output contain `1` or `4`?
+
+```bash
+helm template storefront charts/storefront \
+  -f envs/dev/values.yaml \
+  --set replicaCount=4 |
+  grep 'replicas:'
+```
+
+**Expected:**
+
+```yaml
+  replicas: 4
+```
+
+**What happened:** the explicit override won over the values file.
+
+**What did you change in Kubernetes?** Nothing. You generated text containing `replicas: 4`; you did not submit that text to Kubernetes.
+
+You also did not edit the values file. Run the Step B command again and the original result returns.
+
+> **Checkpoint:** rendering produces a proposed configuration. Synchronization is the later step that applies it.
+
+## 5. The second mystery: “I changed the values file. Why is it still four?”
+
+Suppose you edit the development values file, but Argo CD continues rendering four replicas.
+
+Before editing the file again, check for a higher-priority override in the Application.
+
+### Which source wins?
+
+For a conflicting key, read this table from highest to lowest priority:
+
+| Priority | Source | Where it appears |
+| --- | --- | --- |
+| **1 — highest** | Parameters | `spec.source.helm.parameters` |
+| 2 | Inline YAML object | `spec.source.helm.valuesObject` |
+| 3 | Inline YAML text | `spec.source.helm.values` |
+| 4 | Values files | `spec.source.helm.valueFiles` |
+| **5 — lowest** | Chart defaults | The chart's own `values.yaml` |
+
+For multiple explicitly listed values files, later files take precedence over earlier ones when their keys conflict. [Argo CD value precedence](https://argo-cd.readthedocs.io/en/latest/user-guide/helm/#helm-value-precedence)
+
+### Connect your command to an Argo CD Application
+
+Your local `--set replicaCount=4` override corresponds to a parameter in an Application manifest:
+
+```yaml
+# Application fragment: illustrates an override; do not apply this fragment.
+spec:
+  source:
+    helm:
+      parameters:
+        - name: replicaCount
+          value: "4"
+```
+
+If this parameter is present, changing `replicaCount` in a lower-priority values file will not change the rendered replica count. Update or remove the overriding parameter in the configuration that owns the Application.
+
+For this course, keep routine environment choices in environment values files. Use Application parameters when you deliberately need a higher-priority override, and keep those declarative settings in Git.
+
+> **Troubleshooting habit:** when a values-file edit appears to do nothing, inspect the Application's Helm settings before changing the chart.
+
+## 6. Return to the incident: make the recovery stick
+
+The engineer now understands why Helm cannot roll back `storefront`: Argo CD never created a Helm release for it.
+
+They manually edit the live Deployment to use the previous image. The application recovers—then the broken image returns.
+
+**For this scenario, automated sync and self-heal are enabled.** Git still specifies the broken image, so Argo CD restores that configuration. Without self-heal, detecting a live edit alone does not normally trigger an automatic correction; a later sync can still overwrite it. [Argo CD automatic self-healing](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/#automatic-self-healing)
+
+| Location | Image after the manual edit |
+| --- | --- |
+| Desired configuration in Git | Broken image |
+| Live Deployment | Previous working image |
+
+The edit changed the cluster, but left the desired configuration unchanged.
+
+### The durable recovery for this Git-managed application
+
+1. Revert the bad image change in Git, or commit the previous working image reference.
+2. Push the correction to the branch the Application tracks.
+3. Let automated synchronization apply it, or trigger a manual sync if required.
+4. Verify Argo CD's status and the application's actual behavior.
+
+This is a recovery explanation, not an instruction to break or roll back your lab application now.
+
+Argo CD also maintains its own deployment history and offers rollback capabilities, subject to its sync settings. That history is separate from Helm release history. For the Git-driven workflow here, correcting Git keeps the recovery consistent with future synchronization.
+
+## 7. One upgrade habit to carry forward
+
+**The rendering toolchain helps determine the manifests you deploy.** An Argo CD upgrade can change its bundled Helm version, so unchanged charts and values do not guarantee identical generated output across tool versions.
+
+Before upgrading Argo CD:
+
+1. Render your real charts with the current and proposed tool versions, using equivalent values and rendering inputs.
+2. Compare the generated manifests.
+3. Investigate unexpected differences and test with the proposed Argo CD version before upgrading production.
+
+For example, the Argo CD 3.5 upgrade guide documents the move to Helm 4 and states that `spec.source.helm.version: v3` is ignored. The detailed compatibility checks belong in the upgrade session. [Argo CD 3.5 upgrade guide](https://argo-cd.readthedocs.io/en/latest/operator-manual/upgrading/3.4-3.5/)
+
+Do not assume the `helm` binary in your terminal matches the binary inside Argo CD's repo-server. Matching the renderer is one part of making a local preview representative.
+
+## 8. Quick checks — explain the evidence
+
+Try answering before reading the answer table.
+
+### S4-QC1 — The invisible release
+
+Kubernetes shows the application's Pods. Helm lists no release for it. You know Argo CD deployed it from a chart. How can all three facts be true?
+
+### S4-QC2 — Four replicas on screen
+
+You run `helm template ... --set replicaCount=4`, and the output contains `replicas: 4`. How many Pods did this command create?
+
+### S4-QC3 — Which value wins?
+
+The chart default is `1`, the values file supplies `2`, inline `values` supplies `3`, `valuesObject` supplies `4`, and a parameter supplies `5`. What is the rendered replica count?
+
+### S4-QC4 — The fix that disappears
+
+With automated sync and self-heal enabled, a manual image edit is reversed. Where should you record the previous working image to make the Git-managed recovery persist?
+
+### Answers
+
+| Check | Answer |
+| --- | --- |
+| **S4-QC1** | Argo CD used Helm to render YAML, then deployed the resources itself. It created no Helm release for the application. |
+| **S4-QC2** | **Zero.** Rendering generated YAML only. |
+| **S4-QC3** | **5.** The parameter has the highest priority. |
+| **S4-QC4** | In the Git configuration that determines the image, followed by synchronization and verification. |
+
+## 9. What to remember
+
+- **Rendering creates YAML. Synchronization applies it.**
+- **Argo CD uses Helm's templates without creating a Helm release for the application.**
+- **When a value surprises you, check higher-priority overrides.**
+- **For this Git-managed workflow, record recovery changes in Git so future syncs preserve them.**
+
+**Next:** [Module 2 — Sync ordering and drift](02-sync-ordering-and-drift.md). You now know where the YAML comes from; next, follow what happens when Argo CD applies it.
