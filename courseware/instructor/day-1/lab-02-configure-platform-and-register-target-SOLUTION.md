@@ -62,7 +62,7 @@ A participant who resets mid-lab gets the same clean state; no extra delete comm
 
 ### 0.2 Know where the lab files live
 
-The guide refers to `~/course/lab-files/lab-02/…`. If that directory is missing on a VM, the same files are in the course checkout at `~/argo-cd-material/courseware/environment/lab-files/lab-02/`.
+The guide refers to `~/course/lab-files/lab-02/…`. If that directory is missing on a VM, the same files are in the course checkout at `~/argo-new/courseware/environment/lab-files/lab-02/`.
 
 ### 0.3 Know the four places where v3.5.2 surprises people
 
