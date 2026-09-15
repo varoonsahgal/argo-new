@@ -39,6 +39,40 @@ Now investigate: the application uses a Helm chart and its Pods are running—so
 
 Use the terminal configured for your lab, with access to the `k3d-mgmt` context. These commands inspect the existing `hello-reconcile` application in the `hello` namespace.
 
+### How does Argo even know to use Helm?
+
+First, display the Argo CD Application object—the configuration that tells Argo CD where to find the application and where to deploy it:
+
+```bash
+kubectl --context k3d-mgmt -n argocd \
+  get application hello-reconcile -o yaml
+```
+
+The output is long. Focus on **`spec.source`**:
+
+```yaml
+spec:
+  source:
+    repoURL: http://lab-gitea:3000/course/hello-reconcile.git
+    targetRevision: main
+    path: chart
+```
+
+Read this as: **“Open this Git repository, use the `main` branch, and look in the `chart/` directory.”**
+
+Now open that directory in the repository:
+
+| File or folder      | Purpose                                     |
+| ------------------- | ------------------------------------------- |
+| `chart/Chart.yaml`  | Identifies the directory as a Helm chart.   |
+| `chart/values.yaml` | Supplies default configuration values.      |
+| `chart/templates/`  | Contains the Kubernetes resource templates. |
+
+**Finding `Chart.yaml` tells Argo CD to use Helm**, unless another tool is explicitly configured. The directory name `chart` is just a name; `Chart.yaml` is the detection signal. [Argo CD tool detection](https://argo-cd.readthedocs.io/en/stable/user-guide/tool_detection/)
+
+> **Now the puzzle:** Argo CD knows this is a Helm chart, and the application is running. Does that mean Helm has a release record for it? Let’s check.
+
+
 ### Step A — Ask Kubernetes what is running
 
 ```bash
