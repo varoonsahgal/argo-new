@@ -6,6 +6,33 @@ Use this guide to move through the two-day course in order. Each link opens the 
 
 The course uses Argo CD `v3.5.2`, two k3d Kubernetes clusters, a local Gitea server, and the sample `hello-reconcile` application.
 
+## How sessions and labs fit together
+
+This course has two complementary kinds of learning guides:
+
+### Sessions
+
+This session gives you the model and lets you rehearse each idea with a short observation. You learn the vocabulary, inspect a live object, run a focused command, and answer a quick check before moving on.
+
+### Labs
+
+This lab assumes the preceding session’s concepts. It is not a new lecture; it is where you use those concepts together against a checkpointed environment. You make changes, interpret evidence, and prove the result.
+
+Use the progression below as you work through the course:
+
+| Guide | Your job |
+| --- | --- |
+| Session | Understand the model and rehearse each idea with a short observation. |
+| Lab | Combine the ideas in a longer task: make changes, interpret evidence, and prove the result. |
+
+For Day 1, this means:
+
+- **Session 2** introduces the Argo CD Application model and gives you guided practice observing it.
+- **Lab 1** is the first performance task: use that Application to make a Git change, sync it, diagnose the result, and compare desired, rendered, and live state.
+- The Application deep dive belongs in Session 2 as guided concept practice; you do not need a separate large “Application deep-dive lab.”
+
+Finish the session modules in order before starting the following lab. When a lab begins, verify its checkpoint first and treat that checkpoint as the starting line.
+
 ## Before Day 1
 
 ### 1. Prepare your VM
@@ -86,6 +113,9 @@ Open [Lab 1](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-1
 2. [Commit a change and sync it](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-1/lab-01/02-commit-and-sync.md)
 3. [Why the app did not change](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-1/lab-01/03-why-the-app-didnt-change.md)
 4. [Three views and wrap-up](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-1/lab-01/04-three-views-and-wrap-up.md)
+
+
+> **Why this lab follows Session 2:** This lab assumes the preceding session’s concepts. It is not a new lecture; it is where you use those concepts together against a checkpointed environment.
 
 ### 7. Session 3 — Production-oriented configuration
 
@@ -232,3 +262,4 @@ A checkpoint verification inspects the expected starting state. It does not rese
 - Use the Argo CD UI, CLI, and `kubectl` as three views of the same system.
 - Ask which layer failed: desired state, rendering, synchronization, or live health.
 - Keep credentials out of Git, screenshots, and chat.
+
