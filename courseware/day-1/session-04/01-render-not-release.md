@@ -375,4 +375,4 @@ With automated sync and self-heal enabled, a manual image edit is reversed. Wher
 - **When a value surprises you, check higher-priority overrides.**
 - **For this Git-managed workflow, record recovery changes in Git so future syncs preserve them.**
 
-**Next:** [Module 2 — Sync ordering and drift](02-sync-ordering-and-drift.md). You now know where the YAML comes from; next, follow what happens when Argo CD applies it.
+**Next:** [Module 1.5 — The Running Order: Phases, Waves, Kinds, and Names](01b-sync-order-phases-waves-kinds-names.md). You now know where the YAML comes from; next, follow what happens when Argo CD applies it.
