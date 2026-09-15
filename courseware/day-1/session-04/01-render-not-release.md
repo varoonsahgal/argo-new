@@ -83,7 +83,12 @@ kubectl --context k3d-mgmt -n hello get deployments,pods
 
 The Deployment describes the workload Kubernetes should maintain; the Pod is where its container runs.
 
+
 ### Step B — Ask Helm for its release records
+
+What is a Helm release? When Helm installs a chart, it creates a named installation called a release and stores a record of it in the cluster. Helm records revisions as you upgrade it, allowing commands such as helm list and helm rollback to find and manage that installation.
+
+A chart is the package; a release is a recorded installation of that package. Let’s see whether one exists for hello-reconcile.
 
 Check the **same cluster and namespace**:
 
