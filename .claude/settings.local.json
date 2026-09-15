@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(cd \".github\" 2>/dev/null; find . -iname \"*.json\" -path \"*mcp*\" 2>/dev/null; find .. -maxdepth 3 -iname \"*.mcp*\" -o -iname \"mcp.json\" 2>/dev/null | grep -v node_modules; echo \"---search for context7 refs---\"; grep -ril \"context7\" .. 2>/dev/null | grep -v node_modules; echo \"---vscode dir---\"; find .. -maxdepth 2 -iname \".vscode\" 2>/dev/null)",
-      "Read(//Users/varoonsahgal/Downloads/**)"
-    ]
-  }
-}
