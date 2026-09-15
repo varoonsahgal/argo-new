@@ -234,6 +234,12 @@ Open [Capstone overview](https://github.com/varoonsahgal/argo-new/blob/main/cour
 
 When the incident starts, follow the rules in the capstone. Do not reset the lab after faults have been injected. Record your evidence, repairs, verification results, and reflection.
 
+## Companion reference — Argo CD best practices
+
+Use the [Argo CD Best Practices Field Guide](courseware/reference/argo-cd-best-practices.md) alongside both days and after the course. It connects the session topics to production decisions through 18 practices, embedded diagrams, examples, and seven short exercises.
+
+Consult the relevant practices as each topic comes up. Use the final production-review exercise and ten-question review card after Session 7 or as a follow-up to the capstone. The guide is a reference, not an additional required lab or checkpoint.
+
 ## Commands you will reuse
 
 Run this in every new terminal:
