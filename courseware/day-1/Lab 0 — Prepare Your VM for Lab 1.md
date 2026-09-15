@@ -81,31 +81,36 @@ You do not need to install Helm or the Argo CD CLI separately. Bootstrap downloa
 
 ## 4. Download the course materials
 
-Choose **one** of the following paths.
+Use `varoonsahgal/argo-new` on branch `main` for this delivery. Choose **one** of the following paths.
+
+If you still have an older `~/argo-cd-material` checkout, leave it in place and clone `~/argo-new` using path A. Do not rename the old checkout or discard its changes. If the lab environment is already running, update the environment file in Section 5, skip bootstrap in Section 6, and run the verification in Section 7; changing the checkout does not require rebuilding the clusters.
 
 ### A. If you have not cloned the repository
 
 ```bash
 cd ~
-git clone --branch argo-cd-course-build --single-branch https://github.com/varoonsahgal/argo-cd-material.git
-cd ~/argo-cd-material
+git clone --branch main --single-branch https://github.com/varoonsahgal/argo-new.git
+cd ~/argo-new
 ```
 
-### B. If `~/argo-cd-material` already exists
+### B. If `~/argo-new` already exists
 
 ```bash
-cd ~/argo-cd-material
+cd ~/argo-new
 git status --short
+git remote get-url origin
 ```
 
-If this prints changed files, stop before updating and have those changes reviewed. Do not discard them or force a reset. A local edit from an earlier setup attempt may overlap the updated chart.
+If `git status --short` prints changed files, stop before updating and have those changes reviewed. Do not discard them or force a reset. A local edit from an earlier setup attempt may overlap the updated chart.
 
-If the working tree is clean:
+Confirm that `origin` points to `https://github.com/varoonsahgal/argo-new.git` (or the SSH equivalent `git@github.com:varoonsahgal/argo-new.git`). If it points elsewhere, stop and check the checkout before fetching.
+
+If the working tree is clean and the remote is correct:
 
 ```bash
 git fetch origin
-git switch argo-cd-course-build
-git pull --ff-only origin argo-cd-course-build
+git switch main
+git pull --ff-only origin main
 ```
 
 ### Confirm the branch and updated chart
@@ -115,7 +120,7 @@ git branch --show-current
 git rev-parse --short HEAD
 ```
 
-Expected branch: `argo-cd-course-build`. Record the commit ID for troubleshooting.
+Expected branch: `main`. Record the commit ID for troubleshooting.
 
 ```bash
 grep -c 'annotations:' courseware/environment/repos/hello-reconcile/chart/templates/deployment.yaml
@@ -133,6 +138,8 @@ Lab 1 expects to start from this unmodified chart, so no manual YAML edit is nee
 
 The scripts’ default VM layout assumes a Linux account named `student`. Your VM uses `training`. The following settings use your actual home directory and the scripts’ supported `--local` mode.
 
+This step creates `~/argo-lab-env.sh`. If you are updating from the old repository path, it replaces the previous course path settings; preserve any custom additions before replacing the file.
+
 Copy this entire block, including the final `EOF` line:
 
 ```bash
@@ -142,7 +149,7 @@ export COURSE_TOOLS_DIR="$COURSE_HOME/bin"
 export COURSE_USER_HOME="$HOME"
 export COURSE_CRED_DIR="$HOME/course/credentials"
 export COURSE_SECRET_DIR="$COURSE_HOME/secrets"
-export PATH="$COURSE_TOOLS_DIR:$HOME/argo-cd-material/courseware/environment/scripts:$PATH"
+export PATH="$COURSE_TOOLS_DIR:$HOME/argo-new/courseware/environment/scripts:$PATH"
 EOF
 ```
 
@@ -157,7 +164,7 @@ source ~/argo-lab-env.sh
 ## 6. Build the environment
 
 ```bash
-cd ~/argo-cd-material/courseware/environment/scripts
+cd ~/argo-new/courseware/environment/scripts
 ```
 
 ```bash
@@ -207,7 +214,14 @@ Expected: sync status `Synced` and health status `Healthy`. Bootstrap normally l
 Run the course checkpoint verifier:
 
 ```bash
-bash "$HOME/argo-cd-material/courseware/environment/scripts/reset-lab.sh" CP-lab-01 --verify-only --local
+source ~/argo-lab-env.sh
+reset-lab.sh CP-lab-01 --verify-only --local
+```
+
+If the command is not found after sourcing the file, run the same check by its full path:
+
+```bash
+bash "$HOME/argo-new/courseware/environment/scripts/reset-lab.sh" CP-lab-01 --verify-only --local
 ```
 
 Expected: every verification row passes. The output may say `CP-baseline`; `CP-lab-01` is an alias for that checkpoint. The `--verify-only` option checks the environment without resetting it.
@@ -260,7 +274,7 @@ git ls-remote http://lab-gitea:3000/course/hello-reconcile.git
 
 Expected: commit hashes and branch/tag names. Read access does not require credentials. Bootstrap configures Git to rewrite this URL to localhost for commands on your VM; Argo CD resolves the Git server through the cluster’s DNS configuration.
 
-Leave cloning the exercise repository and changing its message for Lab 1. The source repository at `~/argo-cd-material` contains course materials; the repository you edit during Lab 1 is a separate clone from Gitea.
+Leave cloning the exercise repository and changing its message for Lab 1. The source repository at `~/argo-new` contains course materials; the repository you edit during Lab 1 is a separate clone from Gitea.
 
 ## 10. Ready for Lab 1
 
@@ -297,4 +311,4 @@ When following Lab 1:
 
 ## Reference
 
-Based on the [course environment](https://github.com/varoonsahgal/argo-cd-material/tree/argo-cd-course-build/courseware/environment), including `bootstrap-vm.sh`, `scripts/lib/common.sh`, and `reset-lab.sh`. Lab 1's `hello-reconcile` chart is expected to start with no Deployment annotations (checked in Section 4). This handout is based on script inspection; installation timing and end-to-end execution on the provider VM still require rehearsal.
+Based on the [course environment](https://github.com/varoonsahgal/argo-new/tree/main/courseware/environment), including `bootstrap-vm.sh`, `scripts/lib/common.sh`, and `reset-lab.sh`. Lab 1's `hello-reconcile` chart is expected to start with no Deployment annotations (checked in Section 4). This handout is based on script inspection; installation timing and end-to-end execution on the provider VM still require rehearsal.
