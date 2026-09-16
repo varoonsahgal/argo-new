@@ -1,137 +1,248 @@
-# Session 5 · Module 1 — The Factory: ApplicationSets and Generators
+# Session 5 · Module 1 — ApplicationSets: One Template, Many Applications
 
 > **Day 2 · Session 5 · Module 1 of 3 · ~22 minutes · concept + hands-on**
-> **Goal:** understand the factory metaphor, the fan-out and its blast radius, that ApplicationSets do not deploy anything, and the five generators.
+> **Goal:** predict which Applications one ApplicationSet will produce, then prove your prediction with a preview that creates nothing.
+
+**By the end, you should be able to:**
+
+- Explain why a team would use an ApplicationSet instead of copying Application YAML files.
+- Point to the **generator**, the **template**, and the resulting **Applications**.
+- Preview two Applications and check their names, destinations, and environment values files.
+- Explain why one shared edit can affect many Applications, and why that does not necessarily mean an immediate rollout.
+
+> **Where this fits:** Day 1 taught you how one Application connects Git to a cluster. This session lets you rehearse how to produce many Applications consistently. **Lab 4** is where you build the storefront factory, apply it, and troubleshoot it.
 
 ---
 
-## 1. Why this matters: forty Applications changed
+## 1. The problem: “Can we add another environment?”
 
-It is Wednesday. A platform engineer needs to bump the image tag for `storefront`, which runs in every environment. They open the one file that defines all of them — an **ApplicationSet** — and change a single line. They commit and get coffee.
+You already have an Application for `storefront` in development. Now the team wants staging too.
 
-By the time they are back, **forty Applications have changed.** Every environment the ApplicationSet generates picked up the edit at once, and the controller began syncing all of them. Two were mid-incident. One was production.
+You could copy the Application YAML and change its name, namespace, and values file. That works for two environments. But with ten environments, a shared change means finding and updating ten similar files. It becomes easy to miss one or leave the wrong destination in a copy.
 
-Nothing malfunctioned. The ApplicationSet did precisely what it is *for*: it took one template and one data source and applied a change uniformly. That is the whole value — **leverage**: one edit moves forty things. It is also the whole danger — **blast radius**: one edit moves forty things. This session is about holding both truths at once.
+**An ApplicationSet describes the shared parts once and supplies the differences as data.** Its controller uses that description to create and maintain ordinary Argo CD Applications.
 
----
+Think of a mail merge: one letter template plus two recipient records produces two personalized letters. Here, one Application template plus two environment records produces two Applications.
 
-## 2. The mental model: a factory and a family tree
-
-Two patterns, two pictures.
-
-**An ApplicationSet is a factory.** You give it a *template* (the shape of one Application, with blanks) and a *data source* (a list of values to fill the blanks). It stamps out one nearly-identical Application per item. Add an item, a new Application appears with no new writing. Change the template, every copy changes together. A factory is defined by its *inputs* — you *derive* the products.
-
-**App-of-Apps is a family tree.** Someone deliberately wrote out a hierarchy: this **root** Application creates these specific **child** Applications, in roughly this order. There is no "list to fill in" — the list *is* the decision. A family tree is defined by *intent* — each member is *decided*, written by name.
-
-> **The choosing rule, and the entire decision table in one line:** use a **factory when the list is _derived_**; use a **family tree when the list is _decided_.**
-
-Two framings to carry through:
-- **ApplicationSet gives you _leverage_** — one change moves many things (power and risk in one gesture).
-- **App-of-Apps gives you _legibility_** — a human can read the tree and say exactly what should exist, in what order.
-
-Most teams want **both** — allowed *only with explicit ownership and deletion boundaries* (Module 3).
+**Today's concrete task:** read the existing example, predict the Applications for `dev` and `staging`, and preview them. Success is being able to explain the output—not deploying another storefront yet.
 
 ---
 
-## 3. The fan-out — one edit, multiplied
+## 2. Read the factory: inputs, template, output
 
-```text
-           ONE TEMPLATE                        ONE DATA SOURCE (generator)
-   ┌──────────────────────────┐        ┌───────────────────────────────────────┐
-   │ name: storefront-{{.env}} │   ×    │ matrix: 2 clusters × 3 env files       │
-   │       -{{.name}}          │        │   → 6 combinations                     │
-   └──────────────────────────┘        └───────────────────────────────────────┘
-                    │  ApplicationSet controller stamps one Application per combination
-                    ▼
-   6 Application OBJECTS: storefront-dev-workload-a … storefront-prod-workload-b
-════════════════════════════════════════════════════════════════════ everything BELOW
-   the SAME application-controller reconciles each Application onto its cluster,    this line
-   exactly as it did for one Application in Lab 1. No new deployment mechanism.     is DAY 1
+```mermaid
+flowchart LR
+    G["List generator<br/>env: dev<br/>env: staging"] --> T["One Application template<br/>example-{{ .env }}<br/>storefront-{{ .env }}"]
+    T --> D["Application<br/>example-dev<br/>storefront-dev"]
+    T --> S["Application<br/>example-staging<br/>storefront-staging"]
 ```
 
-**🔍 Two things to notice:**
-1. **Blast radius is arithmetic:** `(items in the generator) × (one template edit) = that many simultaneous changes`. Editing one line with a 40-cluster generator is a 40-cluster change — and the *editing experience looks identical* to editing one. That is why **counting** the generated Applications before you edit (Module 2) is a safety practice.
-2. **Everything below the line is Day 1.** Once the Application objects exist, each is reconciled by the same application controller, same sync/health axes, same drift behavior. **There is no new deployment path to learn today.**
+*Read each output back to its input: `env: dev` supplies the `dev` in the Application name, namespace, and values-file path.*
 
----
+An **ApplicationSet** is a Kubernetes custom resource installed with Argo CD. Like an Application, it is a YAML-described object stored in the Kubernetes API. In this course, both live in the management cluster's `argocd` namespace.
 
-## 4. The one sentence that removes today's fear
+There are two main parts inside its `spec`:
 
-> **The ApplicationSet controller creates, updates, and deletes _Application objects_. That is all.**
-
-It never contacts a workload cluster, never renders a chart, never applies a Deployment. The instant a generated Application exists, the Day-1 **application controller** takes over.
-
-So there are only two questions when an ApplicationSet-generated app is wrong:
-- **Is the _Application_ wrong?** → the Day-1 application controller's domain (rendering, sync, health).
-- **Is the _thing that wrote the Application_ wrong?** → the ApplicationSet controller and its generator.
-
-Keeping those separate is the entire tracing drill of Lab 4. And retrieve one Day-1 lesson: when a generator produces six Applications at once, you see six turn `OutOfSync` — a wall of yellow that looks alarming and is not. **`OutOfSync` does not mean broken.** Read the count, not the color.
-
----
-
-## 5. The five generators, by the question each answers
-
-| Generator | The question it answers | Data source |
+| Part | Plain-language meaning | In today's example |
 |---|---|---|
-| `list` | "Here are the items; I'm telling you." | Hand-written elements |
-| `cluster` | "One per cluster Argo CD knows about." | Registered cluster Secrets (by label) |
-| `git` | "One per file/folder in this repo." | Files or directories in Git |
-| `matrix` | "Every combination of two generators." | Two child generators (cross-product) |
-| `merge` | "Combine, and let one override another." | Several child generators (by merge key) |
+| `generators` | Produce records of values to use in the template | Two records: `env: dev` and `env: staging` |
+| `template` | Describe one Application, with placeholders for what varies | `example-{{ .env }}`, `storefront-{{ .env }}`, and an environment values-file path |
 
-- **`list`** — you write the items by hand. Small sets you *decide* directly.
-- **`cluster`** — reads registered clusters and emits one per matching label. This course labels the workload cluster `cluster-role: workload`; the selector `cluster-role: workload` *excludes* the management cluster, so the app can never be generated onto the Argo CD cluster itself.
-- **`git`** — scans a repo, one entry per matching file/directory. Adding an environment is a pull request that adds a folder. The generator that best embodies GitOps.
-- **`matrix`** — the cross-product of two child generators ("this app, on every environment, on every workload cluster").
-- **`merge`** — overlays generators on a merge key so a later one overrides an earlier one for the same item.
+A **placeholder** marks where a value will be inserted. With Go templating enabled, `{{ .env }}` means “use the `env` value from this record.”
 
-> Current Argo CD also has **SCM Provider**, **Pull Request**, **Cluster Decision Resource**, and **Plugin** generators — they exist, out of scope here. Knowing the five above is enough for Lab 4 and the capstone.
+Here are the relevant parts of the course example. **This is an excerpt to read, not a complete manifest to apply.**
+
+```yaml
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - env: dev
+          - env: staging
+  template:
+    metadata:
+      name: "example-{{ .env }}"
+    spec:
+      project: storefront
+      source:
+        # Shared repository, revision, and chart path omitted here.
+        helm:
+          valueFiles:
+            - "../../envs/{{ .env }}/values.yaml"
+      destination:
+        server: https://k3d-workload-server-0:6443
+        namespace: "storefront-{{ .env }}"
+```
+
+`missingkey=error` makes a missing template value an error; Module 2 explores why that matters.
+
+**Pause and predict:** which fields change between the two generated Applications? Which destination field stays the same?
+
+Both target the **same workload cluster**. An environment does not have to mean a separate cluster; this example separates environments by namespace and values file.
+
+### Can each generated Application use its own Git repository?
+
+**Yes.** The repository URL is part of the Application template, so every generated Application can point to a different repository when the generator supplies a `repoURL` value. A Git generator could produce one record for `payments.git` and another for `catalog.git`, while the template uses `{{ .repoURL }}`.
+
+Most ApplicationSet examples use one repository because the Applications share a chart or deployment structure. Separate repositories make sense when teams own services independently, access must be isolated, or release lifecycles differ. The ApplicationSet still creates the Application objects; each Application then reads its own declared repository.
 
 ---
 
-## 6. Hands-on: preview an ApplicationSet without creating anything
+## 3. Who actually deploys the workload?
 
-The antidote to the blast radius is **preview** — rendering what an ApplicationSet *would* produce, creating none of it.
+```mermaid
+flowchart TB
+    G["Generator + template"] --> AS["ApplicationSet controller"]
+    AS --> A1["Generated Application: dev"]
+    AS --> A2["Generated Application: staging"]
+    A1 --> AC["Application controller"]
+    A2 --> AC
+    Git["Git source + repo-server"] --> AC
+    AC --> W["Workload cluster<br/>Deployments, Services, and other resources"]
+```
 
-**▶ Predict first:** `examples/appset-list.yaml` has a `list` generator with two elements (`dev`, `staging`) and names each app `example-{{ .env }}`. How many Applications will it print, and what are their names?
+*There are two responsibilities: maintain the list of Applications, then reconcile each Application's workload.*
 
-**▶ Do this now** (logged into the `argocd` CLI, in your `platform-config` clone):
+The **ApplicationSet controller** creates, updates, and—subject to its configured policy—deletes **Application objects**. The **application controller** reconciles each generated Application against its Git source and destination, using the repo-server to obtain rendered manifests.
+
+A generated Application works like the ones you used on Day 1. It still has a source, destination, project, sync status, and health status.
+
+**Creating an Application and syncing its workload are separate actions.** A manual-sync Application waits for a sync request. An Application with automated sync enabled can sync automatically, subject to its controls. Today's example does not enable automated sync, and our preview does not create the Applications in the first place.
+
+Use that distinction when diagnosing a problem:
+
+| What you observe | Start by inspecting |
+|---|---|
+| An expected Application is missing, has the wrong name, or points to the wrong namespace | The ApplicationSet's generator, template, and generation errors |
+| The Application has the intended spec, but rendering, sync, or workload health fails | That Application's source, events, conditions, and workload resources—the Day 1 troubleshooting path |
+
+`OutOfSync` means the desired resources and live resources differ. It does not, by itself, tell you whether the workload is healthy.
+
+---
+
+## 4. Guided practice: predict → preview → explain
+
+### A. Open the existing example
+
+Use your course terminal with the Argo CD command-line interface (CLI) logged in. Open your **existing `platform-config` clone**, then run:
+
+```bash
+source ~/argo-lab-env.sh
+pwd
+ls examples/appset-list.yaml
+cat examples/appset-list.yaml
+```
+
+**Expected:** `pwd` ends in your `platform-config` directory, and the file contains the two elements `dev` and `staging`. If the file is not found, check that you are in the clone's top-level directory.
+
+The `storefront` AppProject from Lab 2 must already exist. If your instructor has moved the environment to the Day 2 checkpoint, it is also present there. This preview does not require resetting your environment.
+
+**Before running the preview, write down:**
+
+1. The number of Applications you expect.
+2. Their names and destination namespaces.
+3. The values file each will use.
+
+### B. Preview the generated Applications
 
 ```bash
 argocd appset generate examples/appset-list.yaml -o yaml
 ```
 
-**Expected output** (two Applications *printed*, none created):
+This sends the definition to Argo CD to generate and validate the Application output. **It prints the result; it does not save an ApplicationSet or create Applications.** It needs a reachable Argo CD server and a valid CLI login.
 
-```yaml
-- kind: Application
-  metadata:
-    name: example-dev
-  spec:
-    project: storefront
-    destination:
-      namespace: storefront-dev
-- kind: Application
-  metadata:
-    name: example-staging
-    # ... namespace: storefront-staging
-```
+Locate these fields in the output:
 
-**▶ Confirm nothing was created:**
+| Input record | Application name | Destination namespace | Helm values file |
+|---|---|---|---|
+| `env: dev` | `example-dev` | `storefront-dev` | `../../envs/dev/values.yaml` |
+| `env: staging` | `example-staging` | `storefront-staging` | `../../envs/staging/values.yaml` |
+
+Both should use project `storefront`, chart path `charts/storefront`, and server `https://k3d-workload-server-0:6443`.
+
+**What you proved:** two input records filled the same template twice. You did not write two separate Application manifests.
+
+### C. Check that the preview did not create them
 
 ```bash
-argocd app list -o name | grep example    # (no output — nothing exists)
+kubectl --context k3d-mgmt -n argocd get applications \
+  example-dev example-staging --ignore-not-found -o name
 ```
 
-**🔍 Notice:** the count equals the number of generator elements, every time; `generate` renders but does not apply. *(Note: `appset generate` validates that the referenced `project` exists — here `storefront`, created in Lab 2. If you see "project storefront does not exist," you are at a pre-Lab-2 checkpoint.)*
+**Expected in the untouched course example:** no output. The command succeeded but found neither Application. If a name appears, that Application already exists from another action; `generate` does not create it.
+
+If preview reports that project `storefront` does not exist, check your course environment with the instructor. If it reports a connection or authentication error, restore your CLI connection before continuing. Neither error tells you that the generator needs changing.
+
+> **Stop here for this practice.** There is nothing to apply or clean up. Preview confirms the generated definitions; it does not prove that the chart will render or that a workload will deploy successfully. Lab 4 adds those checks.
 
 ---
 
-## 7. Key takeaways
+## 5. Why preview matters more as the list grows
 
-- **An ApplicationSet is a factory; App-of-Apps is a family tree.** Derived list → factory; decided list → family tree.
-- **ApplicationSets do not deploy anything** — the controller writes *Application objects*; the Day-1 controller does the rest. Everything below the fan-out line is old news.
-- **Blast radius is arithmetic** — one template line × N generator items = N simultaneous changes. Preview before you edit.
-- **Five generators**, learned by the question each answers: list, cluster, git, matrix, merge.
+The number of generated Applications is called the **fan-out**. The number that a change could affect is its **blast radius**.
+
+For today's List generator, two records produce two Applications. For a Matrix generator combining two independent lists of **2 clusters × 3 environments**, the preview would contain **6 Applications**, assuming unique names and valid inputs. That is a scaling example; today's course preview still produces two.
+
+| Change to today's definition | Expected effect when a live ApplicationSet reconciles |
+|---|---|
+| Add another environment record | Generate one additional Application, if the input is valid |
+| Change a shared field such as `template.spec.source.targetRevision` | Update that field in both generated Applications, if updates are permitted |
+| Change the template's namespace expression | Potentially change both Applications' destinations |
+
+A shared edit can reach many Applications. **It does not guarantee that they all roll out immediately or simultaneously.** Workload rollout depends on each Application's sync configuration and applicable controls.
+
+Before accepting a factory change, ask: **“How many Applications will this produce, what will they be called, and where will they point?”** Module 2 turns that question into a repeatable safety check.
+
+---
+
+## 6. Five generators to recognize
+
+A **generator** supplies template values. The difference between generator types is where those values come from, or how they are combined.
+
+| Generator | YAML key | Question it answers | Example |
+|---|---|---|---|
+| List | `list` | “Which records did I explicitly list?” | `dev` and `staging` in today's file |
+| Cluster | `clusters` | “Which registered clusters match my selector?” | Clusters labelled `cluster-role: workload` |
+| Git | `git` | “Which files or directories match in this repository?” | One record per matching environment configuration file |
+| Matrix | `matrix` | “What combinations do two generators produce?” | Each environment on each selected cluster |
+| Merge | `merge` | “Which records match by key, and what values should override them?” | A base cluster list with selected per-cluster overrides |
+
+**Notice the spelling:** the Cluster generator's YAML key is `clusters`, plural.
+
+In the course environment, `cluster-role: workload` selects the workload cluster and excludes the management cluster **because of their current labels**. A selector depends on correct labels; it is not a permanent guarantee against targeting the wrong cluster.
+
+Argo CD also offers SCM Provider, Pull Request, Cluster Decision Resource, and Plugin generators. You do not need them for this exercise.
+
+---
+
+## 7. Where does App-of-Apps fit?
+
+**App-of-Apps** uses a parent Application whose Git source contains child Application manifests. **ApplicationSet** generates Applications from a template and records.
+
+| Your need | Pattern to consider |
+|---|---|
+| Many Applications with the same structure and different values | ApplicationSet |
+| A parent that manages an explicitly defined collection of child Applications | App-of-Apps |
+
+An ApplicationSet can use a hand-written List generator, so the choice is not simply “automatic list versus manual list.” Ask whether a shared template fits the Applications you need.
+
+App-of-Apps also does **not automatically guarantee deployment order or readiness across children**; that needs deliberate configuration. Module 3 covers the pattern, ownership, and deletion boundaries.
+
+---
+
+## 8. Check that the idea has landed
+
+Without running another command, explain:
+
+- Where did the `staging` in `example-staging` come from?
+- If you changed a shared source revision, how many generated Applications could change?
+- Which controller handles workload sync after an Application exists?
+- Why did no new Applications appear after today's command?
+
+> **Takeaway:** an ApplicationSet keeps many Application definitions consistent by combining a generator with one template. Preview makes the result visible before you create or change those Applications.
 
 **→ Next:** [02 — Safety: failing loud and bounding the blast radius](02-safety-and-controls.md)
+
+**Reference:** [ApplicationSet controller responsibilities](https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Argo-CD-Integration/), [generator types](https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Generators/), and [Argo CD 3.5 preview command](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/commands/argocd_appset_generate/).
