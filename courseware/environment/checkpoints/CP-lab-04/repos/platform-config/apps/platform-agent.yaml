@@ -1,0 +1,19 @@
+# Child Application: platform agent. Owned by platform-root.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-agent
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: http://lab-gitea:3000/course/platform-components.git
+    targetRevision: main
+    path: agent
+  destination:
+    server: https://k3d-workload-server-0:6443
+    namespace: platform-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

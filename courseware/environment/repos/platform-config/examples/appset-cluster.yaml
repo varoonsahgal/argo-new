@@ -1,0 +1,29 @@
+# Example ApplicationSet — cluster generator. Dry-run demonstration only.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: example-cluster
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-role: workload
+  template:
+    metadata:
+      name: "example-{{ .name }}"
+    spec:
+      project: storefront
+      source:
+        repoURL: http://lab-gitea:3000/course/storefront-gitops.git
+        targetRevision: main
+        path: charts/storefront
+        helm:
+          valueFiles:
+            - "../../envs/dev/values.yaml"
+      destination:
+        server: "{{ .server }}"
+        namespace: storefront-dev

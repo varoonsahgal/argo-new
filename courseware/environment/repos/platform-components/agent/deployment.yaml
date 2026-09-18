@@ -1,0 +1,40 @@
+# A tiny "platform agent" Deployment (podinfo standing in) in platform-system.
+# Plain-manifest directory (no Chart.yaml).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-agent
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/name: platform-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-agent
+    spec:
+      containers:
+        - name: agent
+          image: stefanprodan/podinfo:6.15.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9898
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

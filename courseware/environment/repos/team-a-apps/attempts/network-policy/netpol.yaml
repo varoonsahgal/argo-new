@@ -1,0 +1,14 @@
+# A NetworkPolicy in the team-a namespace. Lab 5 E4 uses this to show a DIFFERENT
+# denial layer: the team-a AppProject ALLOWS NetworkPolicy, but the workload
+# cluster's least-privilege ServiceAccount (argocd-deployer-team) has no verbs on
+# NetworkPolicies, so Kubernetes forbids the apply (a 403 from the cluster, not an
+# Argo CD/AppProject rejection).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: team-a-default-deny
+  namespace: team-a
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress

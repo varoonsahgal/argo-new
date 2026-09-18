@@ -1,0 +1,19 @@
+# Child Application: platform network policies. Owned by platform-root.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-netpol
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: http://lab-gitea:3000/course/platform-components.git
+    targetRevision: main
+    path: network-policies
+  destination:
+    server: https://k3d-workload-server-0:6443
+    namespace: storefront-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,8 @@
+# staging environment overrides for the storefront chart.
+namespace: storefront-staging
+replicaCount: 2
+image:
+  tag: "6.15.0"
+ui:
+  message: "storefront STAGING"
+  color: "#bf8700"

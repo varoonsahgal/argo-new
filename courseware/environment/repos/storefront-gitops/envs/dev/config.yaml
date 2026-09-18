@@ -1,0 +1,6 @@
+# Generator config for the dev environment.
+# The ApplicationSet git-files generator reads envs/*/config.yaml to learn which
+# environments exist and how to target each one.
+env: dev
+namespace: storefront-dev
+targetRevision: main

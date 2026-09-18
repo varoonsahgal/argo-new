@@ -1,0 +1,43 @@
+# Example ApplicationSet — merge generator. Dry-run demonstration only.
+# Merge overlays a base list with a per-env override, matched on the `env` key.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: example-merge
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - merge:
+        mergeKeys:
+          - env
+        generators:
+          - list:
+              elements:
+                - env: dev
+                  replicas: "1"
+                - env: staging
+                  replicas: "2"
+          - list:
+              elements:
+                - env: staging
+                  replicas: "3"
+  template:
+    metadata:
+      name: "example-{{ .env }}"
+    spec:
+      project: storefront
+      source:
+        repoURL: http://lab-gitea:3000/course/storefront-gitops.git
+        targetRevision: main
+        path: charts/storefront
+        helm:
+          valueFiles:
+            - "../../envs/{{ .env }}/values.yaml"
+          parameters:
+            - name: replicaCount
+              value: "{{ .replicas }}"
+      destination:
+        server: https://k3d-workload-server-0:6443
+        namespace: "storefront-{{ .env }}"

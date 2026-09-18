@@ -1,0 +1,8 @@
+# dev environment overrides for the storefront chart.
+namespace: storefront-dev
+replicaCount: 1
+image:
+  tag: "6.15.0"
+ui:
+  message: "storefront DEV"
+  color: "#2da44e"

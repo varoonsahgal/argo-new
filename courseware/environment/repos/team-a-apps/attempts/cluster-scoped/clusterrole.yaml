@@ -1,0 +1,11 @@
+# A cluster-scoped ClusterRole. Lab 5 E3 tries to deploy this and observes the
+# team-a AppProject reject it, because the project's clusterResourceWhitelist is
+# empty (no cluster-scoped kinds permitted).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: team-a-escalation
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]

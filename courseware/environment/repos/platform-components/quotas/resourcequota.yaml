@@ -1,0 +1,87 @@
+# Generous resource quotas and limit ranges for the storefront namespaces.
+# Sized so they never block a lab. This path is a plain-manifest directory
+# (no Chart.yaml), so Argo CD applies these as-is.
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: storefront-quota
+  namespace: storefront-dev
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 4Gi
+    limits.cpu: "8"
+    limits.memory: 8Gi
+    pods: "20"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: storefront-limits
+  namespace: storefront-dev
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 128Mi
+      defaultRequest:
+        cpu: 10m
+        memory: 32Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: storefront-limits
+  namespace: storefront-staging
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 128Mi
+      defaultRequest:
+        cpu: 10m
+        memory: 32Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: storefront-limits
+  namespace: storefront-prod
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 128Mi
+      defaultRequest:
+        cpu: 10m
+        memory: 32Mi
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: storefront-quota
+  namespace: storefront-staging
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 4Gi
+    limits.cpu: "8"
+    limits.memory: 8Gi
+    pods: "20"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: storefront-quota
+  namespace: storefront-prod
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 4Gi
+    limits.cpu: "8"
+    limits.memory: 8Gi
+    pods: "20"

@@ -1,0 +1,32 @@
+# COMPLETE storefront AppProject for Day 2 (present from cp-lab-04).
+# Lab 2 allowed only storefront-dev and Lab 3 added storefront-staging; Day 2's
+# storefront ApplicationSet deploys dev, staging, and prod, so all three
+# workload destinations are allowed here.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: storefront
+  namespace: argocd
+spec:
+  description: Storefront application-team project
+  sourceRepos:
+    - http://lab-gitea:3000/course/storefront-gitops.git
+  destinations:
+    - server: https://k3d-workload-server-0:6443
+      namespace: storefront-dev
+    - server: https://k3d-workload-server-0:6443
+      namespace: storefront-staging
+    - server: https://k3d-workload-server-0:6443
+      namespace: storefront-prod
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Service
+    - group: apps
+      kind: Deployment
+    - group: batch
+      kind: Job
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler

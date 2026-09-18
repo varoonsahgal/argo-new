@@ -1,0 +1,19 @@
+# Child Application: platform quotas. Owned by platform-root.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-quotas
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: http://lab-gitea:3000/course/platform-components.git
+    targetRevision: main
+    path: quotas
+  destination:
+    server: https://k3d-workload-server-0:6443
+    namespace: storefront-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: storefront
+description: The storefront web application, delivered to dev/staging/prod on the workload cluster.
+type: application
+version: 1.0.0
+appVersion: "6.15.0"

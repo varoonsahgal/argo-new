@@ -1,0 +1,21 @@
+# The App-of-Apps root Application (present from cp-lab-04). It renders the child
+# Application manifests under apps/ and deploys them to the management cluster's
+# argocd namespace. Deleting this root with cascade would remove all children.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-root
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: http://lab-gitea:3000/course/platform-config.git
+    targetRevision: main
+    path: apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,6 @@
+# Generator config for the prod environment.
+# prod is pinned to an immutable Git tag, not a moving branch, so production only
+# changes through a deliberate promotion that moves this pin.
+env: prod
+namespace: storefront-prod
+targetRevision: storefront-1.0.0

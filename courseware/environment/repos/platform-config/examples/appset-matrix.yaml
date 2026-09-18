@@ -1,0 +1,37 @@
+# Example ApplicationSet — matrix generator (cluster x git files).
+# Dry-run demonstration only. This is the shape Lab 4 builds for real.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: example-matrix
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  cluster-role: workload
+          - git:
+              repoURL: http://lab-gitea:3000/course/storefront-gitops.git
+              revision: main
+              files:
+                - path: "envs/*/config.yaml"
+  template:
+    metadata:
+      name: "example-{{ .env }}-{{ .name }}"
+    spec:
+      project: storefront
+      source:
+        repoURL: http://lab-gitea:3000/course/storefront-gitops.git
+        targetRevision: "{{ .targetRevision }}"
+        path: charts/storefront
+        helm:
+          valueFiles:
+            - "../../envs/{{ .env }}/values.yaml"
+      destination:
+        server: "{{ .server }}"
+        namespace: "{{ .namespace }}"

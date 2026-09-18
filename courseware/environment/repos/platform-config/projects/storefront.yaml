@@ -1,0 +1,24 @@
+# SKELETON — the storefront AppProject (completed in Lab 2 exercise E4).
+#
+# An AppProject is a tenant boundary: it restricts which repositories an
+# Application may deploy from, which cluster/namespace destinations it may target,
+# and which resource kinds it may create. Fill in the TODOs, commit, and apply.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: storefront
+  namespace: argocd
+spec:
+  description: Storefront application-team project
+  sourceRepos:
+    # TODO (Lab 2 E4): allow ONLY the storefront-gitops repository URL.
+    - "TODO-REPLACE-WITH-storefront-gitops-url"
+  destinations:
+    # TODO (Lab 2 E4): permit the storefront-dev namespace on the workload cluster.
+    - server: "TODO-REPLACE-WITH-workload-server-url"
+      namespace: storefront-dev
+  # Keep this empty: the storefront app needs no cluster-scoped resources.
+  clusterResourceWhitelist: []
+  # TODO (Lab 2 E4): list the namespaced resource kinds the chart creates
+  # (ConfigMap, Service, Deployment, Job, HorizontalPodAutoscaler).
+  namespaceResourceWhitelist: []

@@ -1,0 +1,29 @@
+# The Argo CD Application for Lab 1.
+#
+# Bootstrap applies this to the management cluster so participants arrive at a
+# Synced/Healthy starting point. Lab 1 exercise E1 reads this manifest and lists
+# every external dependency it names (repo, revision, path, destination, project).
+#
+# It deploys to the *management* cluster (in-cluster) on purpose, so the
+# reconciliation loop can be learned before cluster registration exists. The Lab 1
+# guide states plainly that production platforms do not deploy workloads to the
+# management cluster, and that Lab 2 fixes this.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello-reconcile
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: http://lab-gitea:3000/course/hello-reconcile.git
+    targetRevision: main
+    path: chart
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hello
+  syncPolicy:
+    # Manual sync on purpose: Lab 1 drives Refresh and Sync by hand to watch each
+    # stage of the loop. There is no `automated:` block.
+    syncOptions:
+      - CreateNamespace=true

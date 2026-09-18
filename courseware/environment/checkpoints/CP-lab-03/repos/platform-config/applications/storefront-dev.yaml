@@ -1,0 +1,19 @@
+# COMPLETE storefront-dev Application (Lab 2 E4 answers, present from cp-lab-03).
+# Manual sync (no automated block); Lab 3 turns automation on deliberately.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: storefront-dev
+  namespace: argocd
+spec:
+  project: storefront
+  source:
+    repoURL: http://lab-gitea:3000/course/storefront-gitops.git
+    targetRevision: main
+    path: charts/storefront
+    helm:
+      valueFiles:
+        - ../../envs/dev/values.yaml
+  destination:
+    server: https://k3d-workload-server-0:6443
+    namespace: storefront-dev

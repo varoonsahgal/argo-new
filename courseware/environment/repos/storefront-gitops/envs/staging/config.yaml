@@ -1,0 +1,4 @@
+# Generator config for the staging environment.
+env: staging
+namespace: storefront-staging
+targetRevision: main

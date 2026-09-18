@@ -1,0 +1,16 @@
+# Session 4 · Module 1.5 practice resource.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-test
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: smoke-test
+          image: busybox:1.37.0
+          command: ["sh", "-c", "echo 'smoke test passed'"]

@@ -1,0 +1,9 @@
+# Session 4 · Module 1.5 practice resource.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: welcome-page
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  message: "Welcome to the storefront"

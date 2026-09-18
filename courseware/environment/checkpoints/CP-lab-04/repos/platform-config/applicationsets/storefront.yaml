@@ -1,0 +1,55 @@
+# SKELETON — the storefront ApplicationSet (completed in Lab 4 exercise E1).
+#
+# An ApplicationSet generates and owns many Applications from data. This one uses
+# a matrix of a cluster generator (which workload clusters) and a git-files
+# generator (which environments) to produce one Application per environment.
+# Fill in the TODOs, preview with
+# `argocd appset generate applicationsets/storefront.yaml -o wide`, then apply.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: storefront
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  # TODO (Lab 4 E1): select ONLY workload clusters, not the
+                  # management cluster.
+                  cluster-role: "TODO"
+          - git:
+              repoURL: http://lab-gitea:3000/course/storefront-gitops.git
+              revision: main
+              files:
+                - path: "envs/*/config.yaml"
+  template:
+    metadata:
+      # TODO (Lab 4 E1): name each generated app storefront-<env>-<cluster>.
+      name: "TODO"
+    spec:
+      # Keep project hard-coded (never templated) to avoid privilege escalation.
+      project: storefront
+      source:
+        repoURL: http://lab-gitea:3000/course/storefront-gitops.git
+        # TODO (Lab 4 E1): use the per-env targetRevision from config.yaml so prod
+        # stays pinned to its tag.
+        targetRevision: "TODO"
+        path: charts/storefront
+        helm:
+          valueFiles:
+            # TODO (Lab 4 E1): the per-env values file.
+            - "TODO"
+      destination:
+        # TODO (Lab 4 E1): the cluster server from the cluster generator, and the
+        # namespace from config.yaml.
+        server: "TODO"
+        namespace: "TODO"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true

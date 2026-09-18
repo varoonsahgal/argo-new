@@ -1,0 +1,27 @@
+# The team-a AppProject (present from cp-capstone). A tenant boundary for team-a:
+# source only team-a-apps; destination only the team-a namespace on workload;
+# NO cluster-scoped resources; NetworkPolicy allowed at the project level (but
+# Kubernetes RBAC still forbids it for team-a's ServiceAccount — the Lab 5 E4
+# contrast). ResourceQuota and LimitRange are deliberately NOT whitelisted.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: team-a
+  namespace: argocd
+spec:
+  description: team-a tenant project
+  sourceRepos:
+    - http://lab-gitea:3000/course/team-a-apps.git
+  destinations:
+    - server: https://k3d-workload-server-0:6443
+      namespace: team-a
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Service
+    - group: apps
+      kind: Deployment
+    - group: networking.k8s.io
+      kind: NetworkPolicy

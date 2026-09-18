@@ -1,0 +1,54 @@
+# Default values for the storefront chart.
+#
+# These are deliberately safe defaults. Each environment's values file
+# (envs/<env>/values.yaml) overrides image.tag, the UI text, the namespace, and
+# replica count. The chart never uses `null` to remove a key (Helm 4 rule).
+
+image:
+  repository: stefanprodan/podinfo
+  # image.tag has NO default on purpose. The Deployment template calls
+  # `required` on it, so a missing or blank tag fails rendering with a clear
+  # message instead of silently deploying "latest". Every env sets it.
+  tag: ""
+
+# Namespace the app is deployed into. Overridden per environment.
+namespace: storefront-dev
+
+replicaCount: 1
+
+ui:
+  message: "storefront (default values)"
+  color: "#1f6feb"
+
+probes:
+  readinessPath: /readyz
+  livenessPath: /healthz
+
+# How long the Deployment may take to become available before Kubernetes marks
+# it Failed (and Argo CD reports Degraded). Kept short so health changes are
+# observable within about a minute.
+progressDeadlineSeconds: 60
+
+# A PreSync "database migration" hook. In the real world this would run schema
+# migrations before the new code rolls out. Here it is a short busybox job that
+# lets labs observe sync phases and (when shouldFail is true) a blocked sync.
+migration:
+  enabled: true
+  shouldFail: false
+
+# Horizontal Pod Autoscaler. Off by default. When it is on, remember that the
+# Deployment template still renders spec.replicas, and whoever writes to that
+# field last wins.
+hpa:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

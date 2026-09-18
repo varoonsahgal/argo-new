@@ -1,0 +1,155 @@
+# Argo CD Helm values for the course management cluster (chart argo-cd 10.8.4,
+# appVersion v3.5.2). Blueprint section 8.6.
+#
+# (cp-capstone copy: identical to the baseline file except that configs.rbac now
+# carries the team-a role, which is the state the platform is in once Lab 5's
+# guardrail work has been committed and applied.)
+#
+# These values are applied ONLY by the platform wrapper apply-argocd-config.sh,
+# which runs `helm upgrade --install argocd <vendored-chart> -n argocd` with the
+# copy of this file on this repository's `main` branch. The wrapper stands in for
+# "the platform pipeline that manages Argo CD declaratively", so a change here
+# only reaches the cluster once it is committed, pushed, and applied. Argo CD
+# does NOT manage itself in this environment; session 03 covers self-management
+# as the production option.
+#
+# SECRETS ARE NOT COMMITTED HERE. apply-argocd-config.sh injects, at runtime and
+# from per-VM credential files:
+#   configs.secret.argocdServerAdminPassword            (bcrypt of argocd-admin.txt)
+#   configs.secret.extra."accounts.team-a-dev.password" (bcrypt of team-a-dev.txt)
+# Key paths below were confirmed with `helm show values argo-cd-10.8.4.tgz`.
+
+global:
+  # The address people actually use for this Argo CD. The chart feeds this into
+  # argocd-cm's `url`, which is what the UI links and `argocd app get` print.
+  # (No ingress is used here; the NodePort below is the real listener.)
+  domain: localhost:8443
+  # Pull images at most once; bootstrap pre-imports them into k3d for offline use.
+  image:
+    imagePullPolicy: IfNotPresent
+
+## ---------------------------------------------------------------------------
+## API server + UI. NodePort 30443 is published by k3d as https://localhost:8443.
+## ---------------------------------------------------------------------------
+server:
+  # Real TLS with Argo CD's self-signed certificate. server.insecure stays false.
+  service:
+    type: NodePort
+    nodePortHttps: 30443
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+## ---------------------------------------------------------------------------
+## Non-HA: one replica of each component. The HA demo runs only on the
+## instructor VM's ha-demo cluster.
+## ---------------------------------------------------------------------------
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+repoServer:
+  replicas: 1
+  # Explicit requests and limits. The repo-server is the component that renders
+  # every manifest, and rendering is memory-hungry in bursts, so these numbers
+  # are sized with headroom rather than trimmed to the observed average.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+applicationSet:
+  replicas: 1
+  # Leave the controller-wide policy UNSET so each ApplicationSet's own
+  # applicationsSync policy is honored by default.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+## Redis: disposable cache, single instance (non-HA). Pinned explicitly and
+## pre-imported by bootstrap so resets work offline.
+redis:
+  image:
+    repository: public.ecr.aws/docker/library/redis
+    tag: 8.6.4-alpine
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+## The chart's redis-secret-init pre-install hook Job and its own Role/RoleBinding
+## share ONE unweighted pre-install hook, so their apply order is not guaranteed.
+## Under the pinned Helm 4 the Job can run before its RoleBinding is effective and
+## fail with a 403 (BackoffLimitExceeded), hanging `helm --wait` forever. We disable
+## the hook and let apply-argocd-config.sh pre-create the `argocd-redis` secret
+## deterministically (the chart documents this as a supported alternative).
+redisSecretInit:
+  enabled: false
+
+## No identity provider in the lab.
+dex:
+  enabled: false
+
+## Present in the component map (V-05) and discussed in session 07. No triggers
+## configured at baseline.
+notifications:
+  enabled: true
+
+## Not needed for this course.
+commitServer:
+  enabled: false
+
+## ---------------------------------------------------------------------------
+## Declarative configuration (argocd-cm, argocd-cmd-params-cm, argocd-rbac-cm).
+## ---------------------------------------------------------------------------
+configs:
+  cm:
+    # Lab-only deviation from the defaults (120s / 60s). Every guide that times
+    # reconciliation states this. Makes the loop observable within ~60s.
+    timeout.reconciliation: 60s
+    timeout.reconciliation.jitter: 0s
+    # The controller watches only what the least-privilege ServiceAccount can list.
+    resource.respectRBAC: normal
+    # Annotation-based tracking is the 3.x default; stated explicitly for teaching.
+    application.resourceTrackingMethod: annotation
+    # Local admin stays enabled; session 06 explains removing routine admin use.
+    admin.enabled: "true"
+    # A local account that simulates an SSO group member. It can log in, and that
+    # is all: any permission it has comes from configs.rbac below.
+    accounts.team-a-dev: login
+
+  params:
+    # Keep the API server on TLS (do not run it insecure).
+    server.insecure: "false"
+
+  rbac:
+    # No permissions by default: an account that is not named in policy.csv can
+    # log in and see nothing. Every grant is written here, deliberately.
+    policy.default: ""
+    # The team-a role: team-a-dev may look at and sync team-a's own Applications,
+    # and run resource actions on them. Nothing else, and nothing outside team-a.
+    policy.csv: |
+      p, role:team-a, applications, get, team-a/*, allow
+      p, role:team-a, applications, sync, team-a/*, allow
+      p, role:team-a, applications, action/*, team-a/*, allow
+      g, team-a-dev, role:team-a

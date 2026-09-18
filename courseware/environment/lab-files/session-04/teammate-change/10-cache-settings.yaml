@@ -1,0 +1,9 @@
+# Session 4 · Module 1.5 practice resource: a teammate's change.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cache-settings
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+data:
+  CACHE_TARGET: "web"

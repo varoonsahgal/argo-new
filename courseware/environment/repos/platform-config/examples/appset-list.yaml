@@ -1,0 +1,31 @@
+# Example ApplicationSet — list generator. Used only for the session 05
+# "Try It Yourself" dry-run (`argocd appset create --dry-run`); it is never
+# applied by the environment.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: example-list
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - env: dev
+          - env: staging
+  template:
+    metadata:
+      name: "example-{{ .env }}"
+    spec:
+      project: storefront
+      source:
+        repoURL: http://lab-gitea:3000/course/storefront-gitops.git
+        targetRevision: main
+        path: charts/storefront
+        helm:
+          valueFiles:
+            - "../../envs/{{ .env }}/values.yaml"
+      destination:
+        server: https://k3d-workload-server-0:6443
+        namespace: "storefront-{{ .env }}"

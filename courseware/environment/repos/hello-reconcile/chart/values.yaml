@@ -1,0 +1,16 @@
+# Values for the hello-reconcile chart.
+# Lab 1 participants change `message` (and optionally `color`) and push the
+# commit to watch Argo CD detect drift and reconcile.
+
+# The text podinfo shows in its UI and JSON response.
+message: "Hello from Git, revision one"
+
+# The accent colour podinfo uses in its UI (any CSS colour keyword or hex value).
+color: "#326ce5"
+
+# How many podinfo replicas to run. Lab 1's stretch task sets this to 0.
+replicaCount: 1
+
+image:
+  repository: stefanprodan/podinfo
+  tag: "6.15.0"

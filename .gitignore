@@ -1,0 +1,21 @@
+.DS_Store
+.claude/settings.local.json
+node_modules/
+
+# Terraform local state, provider caches, and real variable files
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.auto.tfvars
+terraform.tfvars
+!*.tfvars.example
+
+# Local sandbox credentials and generated secrets
+*.kubeconfig
+kubeconfig*
+*.pem
+*.key
+.env
+.secrets/

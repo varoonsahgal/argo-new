@@ -1,0 +1,20 @@
+# The team-a guestbook Application (present from cp-capstone). Deploys the
+# guestbook from team-a-apps into the team-a namespace on the workload cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: team-a-guestbook
+  namespace: argocd
+spec:
+  project: team-a
+  source:
+    repoURL: http://lab-gitea:3000/course/team-a-apps.git
+    targetRevision: main
+    path: guestbook
+  destination:
+    server: https://k3d-workload-server-0:6443
+    namespace: team-a
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

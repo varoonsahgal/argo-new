@@ -1,0 +1,8 @@
+# prod environment overrides for the storefront chart.
+namespace: storefront-prod
+replicaCount: 2
+image:
+  tag: "6.15.0"
+ui:
+  message: "storefront PROD"
+  color: "#cf222e"

@@ -1,0 +1,44 @@
+{{- if .Values.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "storefront.name" . }}-migration
+  labels:
+    {{- include "storefront.labels" . | nindent 4 }}
+  annotations:
+    # PreSync hook: Argo CD runs this Job and waits for it to succeed *before*
+    # applying the Sync-phase resources (ConfigMap, Deployment, Service).
+    argocd.argoproj.io/hook: PreSync
+    # Delete the previous hook Job just before creating a new one, so each sync
+    # starts clean and the last run stays visible for inspection.
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "storefront.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migration
+          image: busybox:1.37.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Running storefront schema migration...";
+              {{- if .Values.migration.shouldFail }}
+              echo "migration failed: incompatible schema" >&2;
+              exit 1;
+              {{- else }}
+              sleep 2;
+              echo "migration complete";
+              {{- end }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+{{- end }}

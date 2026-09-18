@@ -1,0 +1,25 @@
+# SKELETON — the storefront-dev Application (completed in Lab 2 exercise E4).
+#
+# An Application tells Argo CD: render THIS chart at THIS revision from THIS repo,
+# and keep THIS destination namespace matching it. Fill in the TODOs, commit, and
+# apply. It uses manual sync on purpose (no `automated:` block) so Lab 3 can turn
+# automation on deliberately.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: storefront-dev
+  namespace: argocd
+spec:
+  project: storefront
+  source:
+    repoURL: http://lab-gitea:3000/course/storefront-gitops.git
+    targetRevision: main
+    path: charts/storefront
+    helm:
+      valueFiles:
+        # TODO (Lab 2 E4): point at the dev values file, relative to the chart path.
+        - "TODO-REPLACE-WITH-dev-values-path"
+  destination:
+    # TODO (Lab 2 E4): the workload cluster API server URL.
+    server: "TODO-REPLACE-WITH-workload-server-url"
+    namespace: storefront-dev

@@ -1,0 +1,1220 @@
+# screenshot-manifest.yaml — authoritative inventory of the 71 course screenshots.
+#
+# Consumed by capture.mjs (see README.md). One entry per screenshot ID from
+# blueprint section 9.2. This file is the single source of truth for WHAT gets
+# captured, WHERE it is written, and WHAT state must exist first.
+#
+# IMPORTANT (blueprint 9.1 / P-18): every `route` and `highlight.selector` below
+# is PROVISIONAL. Argo CD UI routes and DOM selectors must be confirmed live at
+# capture time and never invented into a participant guide. capture.mjs degrades
+# gracefully when a selector cannot be found (it captures the shot and records a
+# "selector not found" note in the capture log).
+#
+# `caption_note` marks the ApplicationSet Alpha UI (Alpha since Argo CD v3.5.0,
+# blueprint EV-12); those captions MUST carry the note and be recaptured on any
+# Argo CD version change.
+
+version: 1
+
+config:
+  argocd_base_url: https://localhost:8443
+  gitea_base_url: http://localhost:3000
+  output_root: courseware/assets/screenshots
+  capture_log: courseware/assets/screenshots/capture-log.md
+  viewport:
+    width: 1440
+    height: 900
+    device_scale_factor: 1
+    color_scheme: light
+  highlight:
+    color: "#d7263d"
+    width_px: 3
+    style: solid
+  # Credentials are read from these env vars, falling back to the on-VM files.
+  # ARGOCD_ADMIN_PASSWORD  (else ~/course/credentials/argocd-admin.txt)
+  # TEAM_A_DEV_PASSWORD    (else ~/course/credentials/team-a-dev.txt)
+  # GITEA_PASSWORD         (else ~/course/credentials/gitea-student.txt)
+
+shots:
+  # --- Environment / student setup guide -----------------------------------
+  - id: SS-ENV-01
+    guide: student-setup-guide
+    filename: day-1/env-01-applications-baseline.png
+    app: argocd
+    auth: admin
+    route: /applications
+    state: "Applications list right after first login"
+    produced_by: CP-baseline
+    fidelity: full
+    highlight:
+      intent: "hello-reconcile tile showing Synced and Healthy"
+      selector: ".applications-list .argo-table-list__row"
+
+  - id: SS-ENV-02
+    guide: student-setup-guide
+    filename: day-1/env-02-gitea-course-repos.png
+    app: gitea
+    auth: gitea
+    route: /course
+    state: "Gitea organization 'course' repository list"
+    produced_by: CP-baseline
+    fidelity: full
+    highlight:
+      intent: "the five seeded repositories"
+      selector: "#repo-list, .flex-list"
+
+  # --- Guide 01 -------------------------------------------------------------
+  - id: SS-S1-01
+    guide: "01"
+    filename: day-1/s01-01-applications-list.png
+    app: argocd
+    auth: admin
+    route: /applications
+    state: "Applications list"
+    produced_by: CP-baseline
+    fidelity: full
+    highlight:
+      intent: "the single Application and its destination"
+      selector: ".applications-list .argo-table-list__row"
+
+  - id: SS-S1-02
+    guide: "01"
+    filename: day-1/s01-02-gitea-commit-history.png
+    app: gitea
+    auth: gitea
+    route: /course/hello-reconcile/commits/branch/main
+    state: "Gitea commit history for hello-reconcile main"
+    produced_by: CP-baseline
+    fidelity: full
+    highlight:
+      intent: "author, message, and SHA columns"
+      selector: "#commits-table, .commit-list"
+
+  # --- Guide 02 -------------------------------------------------------------
+  - id: SS-S2-01
+    guide: "02"
+    filename: day-1/s02-01-app-tree-synced-healthy.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "hello-reconcile tree view"
+    produced_by: CP-baseline
+    fidelity: full
+    highlight:
+      intent: "sync-status and health-status indicators (separately)"
+      selector: ".application-status-panel"
+
+  - id: SS-S2-02
+    guide: "02"
+    filename: day-1/s02-02-app-details-summary.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile?view=summary
+    state: "Application details summary panel"
+    produced_by: CP-baseline
+    fidelity: panel
+    highlight:
+      intent: "repo URL, target revision, path, destination, project, sync policy"
+      selector: ".application-summary"
+
+  - id: SS-S2-03
+    guide: "02"
+    filename: day-1/s02-03-live-manifest-tracking-id.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "Deployment node, live manifest tab"
+    produced_by: CP-baseline
+    fidelity: panel
+    highlight:
+      intent: "argocd.argoproj.io/tracking-id annotation"
+      selector: ".application-node-info"
+
+  # --- Lab 01 ---------------------------------------------------------------
+  - id: SS-L1-01
+    guide: lab-01
+    filename: day-1/lab-01-01-login.png
+    app: argocd
+    auth: none
+    route: /login
+    state: "Login page (logged out)"
+    produced_by: "logged out"
+    fidelity: full
+    highlight:
+      intent: "username and password fields"
+      selector: "form"
+
+  - id: SS-L1-02
+    guide: lab-01
+    filename: day-1/lab-01-02-applications-healthy.png
+    app: argocd
+    auth: admin
+    route: /applications
+    state: "Applications list — healthy environment check"
+    produced_by: CP-lab-01
+    fidelity: full
+    highlight:
+      intent: "Synced/Healthy badges"
+      selector: ".applications-list .argo-table-list__row"
+
+  - id: SS-L1-03
+    guide: lab-01
+    filename: day-1/lab-01-03-resource-tree.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "Tree view during guided walkthrough"
+    produced_by: "guided walkthrough"
+    fidelity: full
+    highlight:
+      intent: "Application -> Service/ConfigMap/Deployment -> ReplicaSet -> Pod chain"
+      selector: ".application-resource-tree"
+
+  - id: SS-L1-04
+    guide: lab-01
+    filename: day-1/lab-01-04-app-manifest.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile?tab=manifest
+    state: "App details, manifest tab"
+    produced_by: "guided walkthrough"
+    fidelity: panel
+    highlight:
+      intent: "source, destination, project, syncPolicy blocks"
+      selector: ".application-manifest"
+
+  - id: SS-L1-05
+    guide: lab-01
+    filename: day-1/lab-01-05-outofsync-after-refresh.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "Tree after push and Refresh"
+    produced_by: "lab-01 E2"
+    fidelity: full
+    highlight:
+      intent: "OutOfSync on the app and the ConfigMap node"
+      selector: ".application-resource-tree"
+
+  - id: SS-L1-06
+    guide: lab-01
+    filename: day-1/lab-01-06-app-diff.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "Diff view (Diff button -> Manifest Diff tab), after the E2 Part 1 push and Refresh, before Sync"
+    produced_by: "lab-01 E2"
+    # Without this click the shot is just the tree (identical to SS-L1-05).
+    actions:
+      - click: 'button:has(span.show-for-large:text-is("Diff"))'
+      - wait_for: ".sliding-panel--opened .application-resources-diff"
+      - wait_ms: 1500
+    fidelity: full
+    highlight:
+      intent: "changed message line"
+      selector: ".sliding-panel--opened .application-resources-diff"
+
+  - id: SS-L1-07
+    guide: lab-01
+    filename: day-1/lab-01-07-sync-panel.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "Sync panel open, before sync"
+    produced_by: "lab-01 E2"
+    actions:
+      - click: 'button:has(span.show-for-large:text-is("Sync"))'
+      - wait_for: ".sliding-panel--opened .sliding-panel__body"
+      - wait_ms: 1000
+    fidelity: full
+    highlight:
+      intent: "Synchronize button, Prune unchecked, resource list"
+      selector: ".sliding-panel--opened .sliding-panel__body"
+
+  - id: SS-L1-08
+    guide: lab-01
+    filename: day-1/lab-01-08-synced-new-revision.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "After sync"
+    produced_by: "lab-01 E2"
+    fidelity: full
+    highlight:
+      intent: "last sync Succeeded and the new revision SHA"
+      selector: '.application-status-panel__item:has-text("LAST SYNC")'
+
+  - id: SS-L1-09
+    guide: lab-01
+    filename: day-1/lab-01-09-pod-events.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "Pod node, events tab"
+    produced_by: "lab-01 E4 (shortly after the E2 Part 3 rollout)"
+    actions:
+      - click: ".application-resource-tree__node--pod"
+      - wait_for: ".sliding-panel--opened .tabs__nav"
+      - click: ".sliding-panel--opened .tabs__nav >> text=Events"
+      - wait_ms: 2000
+    fidelity: full
+    highlight:
+      intent: "event reasons"
+      selector: ".sliding-panel--opened .tabs__content"
+
+  - id: SS-L1-10
+    guide: lab-01
+    filename: day-1/lab-01-10-history.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "History and rollback panel"
+    produced_by: "after lab-01 E2 and stretch A"
+    actions:
+      - click: 'button:has(span.show-for-large:text-is("History and rollback"))'
+      - wait_for: ".application-deployment-history"
+      - wait_ms: 1000
+    fidelity: full
+    highlight:
+      intent: "the lab's revisions, newest first"
+      selector: ".application-deployment-history"
+
+  - id: SS-L1-11
+    guide: lab-01
+    filename: day-1/lab-01-11-deployment-outofsync-checksum.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "Tree after the E2 Part 3 push (checksum/config annotation added) and Refresh, before Sync"
+    produced_by: "lab-01 E2 Part 3"
+    fidelity: full
+    highlight:
+      intent: "OutOfSync on the Deployment node while the ConfigMap node is Synced"
+      selector: ".application-resource-tree"
+
+  - id: SS-L1-12
+    guide: lab-01
+    filename: day-1/lab-01-12-rollout-new-replicaset.png
+    app: argocd
+    auth: admin
+    route: /applications/hello-reconcile
+    state: "Tree after the E2 Part 3 sync completes"
+    produced_by: "lab-01 E2 Part 3"
+    fidelity: full
+    highlight:
+      intent: "Deployment owns two ReplicaSets: the old one scaled to 0 and a new one with a running Pod"
+      selector: ".application-resource-tree"
+
+  # --- Guide 03 -------------------------------------------------------------
+  - id: SS-S3-01
+    guide: "03"
+    filename: day-1/s03-01-settings.png
+    app: argocd
+    auth: admin
+    route: /settings
+    state: "Settings landing page"
+    produced_by: CP-baseline
+    fidelity: full
+    highlight:
+      intent: "Repositories, Clusters, Projects entries"
+      selector: ".settings-overview"
+
+  - id: SS-S3-02
+    guide: "03"
+    filename: day-1/s03-02-clusters-before-registration.png
+    app: argocd
+    auth: admin
+    route: /settings/clusters
+    state: "Settings, Clusters"
+    produced_by: CP-lab-02
+    fidelity: full
+    highlight:
+      intent: "only in-cluster listed"
+      selector: ".argo-table-list"
+
+  # --- Lab 02 ---------------------------------------------------------------
+  - id: SS-L2-01
+    guide: lab-02
+    filename: day-1/lab-02-01-repositories-empty.png
+    app: argocd
+    auth: admin
+    route: /settings/repos
+    state: "Settings, Repositories — environment check"
+    produced_by: CP-lab-02
+    fidelity: full
+    highlight:
+      intent: "no private repo connected"
+      selector: ".argo-table-list"
+
+  - id: SS-L2-02
+    guide: lab-02
+    filename: day-1/lab-02-02-repository-connected.png
+    app: argocd
+    auth: admin
+    route: /settings/repos
+    state: "Settings, Repositories after connecting"
+    produced_by: "lab-02 E1"
+    fidelity: full
+    highlight:
+      intent: "storefront-gitops connection Successful"
+      selector: ".argo-table-list__row"
+
+  - id: SS-L2-03
+    guide: lab-02
+    filename: day-1/lab-02-03-cluster-registered.png
+    app: argocd
+    auth: admin
+    route: /settings/clusters
+    # Capture right after E2, BEFORE E4: no Application uses the workload cluster
+    # yet, so v3.5.2 shows it as Unknown ("not being monitored"), not Successful.
+    state: "Settings, Clusters after registration, before any Application uses it"
+    produced_by: "lab-02 E2"
+    fidelity: full
+    highlight:
+      intent: "workload row at the in-network server URL, status Unknown"
+      selector: ".argo-table-list__row"
+
+  - id: SS-L2-04
+    guide: lab-02
+    filename: day-1/lab-02-04-cluster-detail.png
+    app: argocd
+    auth: admin
+    route: /settings/clusters
+    state: "Cluster detail page for workload (after E2, before E4)"
+    produced_by: "lab-02 E2"
+    # Clicking the row opens /settings/clusters/<server URL>: GENERAL (namespaces,
+    # labels) and CONNECTION STATE boxes.
+    actions:
+      - click: '.argo-table-list__row:has-text("k3d-workload-server-0")'
+      - wait_for: ".white-box"
+      - wait_ms: 1500
+    fidelity: full
+    highlight:
+      intent: "namespaces scoping, labels, connection state"
+      selector: ".white-box"
+
+  - id: SS-L2-05
+    guide: lab-02
+    filename: day-1/lab-02-05-project-storefront.png
+    app: argocd
+    auth: admin
+    route: /settings/projects/storefront
+    state: "Project storefront detail"
+    produced_by: "lab-02 E4"
+    # The summary tab scrolls; at 900 px it cuts off above DESTINATIONS. 1600 px
+    # shows source repos, destinations, and the empty cluster resource allow list.
+    viewport:
+      width: 1440
+      height: 1600
+    fidelity: full
+    highlight:
+      intent: "source repos, destinations, empty cluster-resource allow list"
+      selector: ".project-details"
+
+  - id: SS-L2-06
+    guide: lab-02
+    filename: day-1/lab-02-06-applications-with-dev.png
+    app: argocd
+    auth: admin
+    route: /applications
+    state: "Applications list"
+    produced_by: "lab-02 E4"
+    fidelity: full
+    highlight:
+      intent: "storefront-dev OutOfSync/Missing"
+      selector: ".applications-list .argo-table-list__row"
+
+  - id: SS-L2-07
+    guide: lab-02
+    filename: day-1/lab-02-07-dev-tree-missing.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev
+    state: "storefront-dev tree"
+    produced_by: "lab-02 E4"
+    fidelity: full
+    highlight:
+      intent: "Missing resource nodes"
+      selector: ".application-resource-tree"
+
+  - id: SS-L2-08
+    guide: lab-02
+    filename: day-1/lab-02-08-dev-diff-all-new.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev
+    state: "Diff view"
+    produced_by: "lab-02 E4"
+    # Same verified v3.5.2 selectors as SS-L1-06: the toolbar button is "Diff".
+    actions:
+      - click: 'button:has(span.show-for-large:text-is("Diff"))'
+      - wait_for: ".sliding-panel--opened .application-resources-diff"
+      - wait_ms: 1500
+    fidelity: full
+    highlight:
+      intent: "desired-only resources"
+      selector: ".sliding-panel--opened .application-resources-diff"
+
+  - id: SS-L2-09
+    guide: lab-02
+    filename: day-1/lab-02-09-repository-failed.png
+    app: argocd
+    auth: admin
+    route: /settings/repos
+    state: "Settings, Repositories (troubleshooting) — record 1 rendered and applied"
+    produced_by: "lab-02 E5"
+    # The list shows only "Failed"; the message is in the row's panel
+    # (Connection State Details). Click Refresh list first: argocd-server caches
+    # connection status for up to 1 h, so a plain page load can show an old result.
+    actions:
+      - click: 'button:has-text("Refresh list")'
+      - wait_ms: 3000
+      - click: '.argo-table-list__row:has-text("storefront-typo")'
+      - wait_for: ".sliding-panel--opened"
+      - wait_ms: 1500
+    fidelity: full
+    highlight:
+      intent: "Failed repository and its Connection State Details message"
+      selector: ".sliding-panel--opened .white-box"
+
+  - id: SS-L2-10
+    guide: lab-02
+    filename: day-1/lab-02-10-cluster-failed.png
+    app: argocd
+    auth: admin
+    route: /settings/clusters
+    # No Application uses the loopback cluster, so v3.5.2 never tests it: the row
+    # reads Unknown ("not being monitored"), not Failed. Capture >= 1 min after apply.
+    state: "Settings, Clusters (troubleshooting) — record 2 applied, about a minute later"
+    produced_by: "lab-02 E5"
+    fidelity: full
+    highlight:
+      intent: "workload-loopback row Unknown next to workload Successful"
+      selector: ".argo-table-list__row"
+
+  # --- Guide 04 -------------------------------------------------------------
+  - id: SS-S4-01
+    guide: "04"
+    filename: day-1/s04-01-sync-options.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev
+    state: "Sync panel with options expanded"
+    produced_by: CP-lab-03
+    fidelity: panel
+    highlight:
+      intent: "prune, dry run, apply only, force, sync-option checkboxes"
+      selector: ".application-sync-panel"
+
+  - id: SS-S4-02
+    guide: "04"
+    filename: day-1/s04-02-sync-policy.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev?view=summary
+    state: "App details, sync policy section"
+    produced_by: CP-lab-03
+    fidelity: panel
+    highlight:
+      intent: "auto-sync, prune, self-heal controls"
+      selector: ".application-summary"
+
+  - id: SS-S4-03
+    guide: "04"
+    filename: day-1/s04-03-presync-hook-in-tree.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev
+    state: "storefront-dev tree after sync"
+    produced_by: "lab-03 E1 state"
+    fidelity: full
+    highlight:
+      intent: "PreSync Job node"
+      selector: ".application-resource-tree"
+
+  - id: SS-S4-04
+    guide: "04"
+    filename: day-1/s04-04-history-rollback.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev
+    state: "History and rollback"
+    produced_by: "lab-03 E2 state"
+    fidelity: panel
+    highlight:
+      intent: "rollback action on an older revision"
+      selector: ".application-deployment-history"
+
+  # --- Lab 03 ---------------------------------------------------------------
+  - id: SS-L3-01
+    guide: lab-03
+    filename: day-1/lab-03-01-env-check.png
+    app: argocd
+    auth: admin
+    # The caption describes the Applications LIST (hello-reconcile tile beside
+    # storefront-dev, no storefront-staging tile), so capture the list, not the
+    # storefront-dev page.
+    route: /applications
+    state: "Applications list at CP-lab-03, before E1: storefront-dev OutOfSync/Missing, hello-reconcile Synced/Healthy, no storefront-staging"
+    produced_by: CP-lab-03
+    fidelity: full
+    highlight:
+      intent: "storefront-dev OutOfSync/Missing beside hello-reconcile"
+      selector: ".applications-list .argo-table-list__row"
+
+  - id: SS-L3-02
+    guide: lab-03
+    filename: day-1/lab-03-02-synced-with-hook.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev
+    state: "Tree after first sync"
+    produced_by: "lab-03 E1"
+    fidelity: full
+    highlight:
+      intent: "completed PreSync Job; Healthy Deployment"
+      selector: ".application-resource-tree"
+
+  - id: SS-L3-03
+    guide: lab-03
+    filename: day-1/lab-03-03-parameters-values-files.png
+    app: argocd
+    auth: admin
+    # Verified v3.5.2 deep link: Details panel, PARAMETERS tab. The old
+    # ?view=parameters route loaded "permission denied" (app did not exist yet).
+    route: "/applications/argocd/storefront-staging?resource=&node=argoproj.io%2FApplication%2Fargocd%2Fstorefront-staging%2F0&tab=parameters"
+    state: "storefront-staging Details -> PARAMETERS, after E2 (staging synced, 2 replicas)"
+    produced_by: "lab-03 E2"
+    # Taller page so replicaCount (2) and ui.message are visible below image.tag.
+    viewport: { width: 1440, height: 1500 }
+    actions:
+      - wait_for: '.sliding-panel--opened .white-box:has-text("VALUES FILES")'
+      - wait_ms: 1500
+    fidelity: full
+    highlight:
+      intent: "VALUES FILES ../../envs/staging/values.yaml; replicaCount 2"
+      selector: '.sliding-panel--opened .white-box:has-text("VALUES FILES")'
+
+  - id: SS-L3-04
+    guide: lab-03
+    filename: day-1/lab-03-04-live-drift.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev
+    state: "Tree after kubectl scale"
+    produced_by: "lab-03 E3"
+    fidelity: full
+    highlight:
+      intent: "Deployment OutOfSync"
+      selector: ".application-resource-tree"
+
+  - id: SS-L3-05
+    guide: lab-03
+    filename: day-1/lab-03-05-drift-diff.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev
+    state: "Diff view (Diff button) after E3's kubectl scale --replicas=3, before E4's sync"
+    produced_by: "lab-03 E3"
+    # Without the Diff click the shot is just the tree (identical to SS-L3-04).
+    # Same verified v3.5.2 selectors as SS-L1-06 / SS-L2-08. "Compact diff" is
+    # needed: the full diff opens on the metadata block and spec.replicas (line
+    # ~151) is far below the fold.
+    actions:
+      - click: 'button:has(span.show-for-large:text-is("Diff"))'
+      - wait_for: ".sliding-panel--opened .application-resources-diff"
+      - click: '.sliding-panel--opened label:has-text("Compact diff")'
+      - wait_ms: 2000
+    fidelity: full
+    highlight:
+      intent: "spec.replicas live 3 vs desired 1"
+      selector: ".sliding-panel--opened .application-resources-diff"
+
+  - id: SS-L3-06
+    guide: lab-03
+    filename: day-1/lab-03-06-auto-sync-enabled.png
+    app: argocd
+    auth: admin
+    # Verified v3.5.2: Details panel, SUMMARY tab; the SYNC POLICY box is at the
+    # bottom. Scroll it to the middle so the annotations row is off-screen.
+    route: "/applications/argocd/storefront-dev?resource=&node=argoproj.io%2FApplication%2Fargocd%2Fstorefront-dev%2F0&tab=summary"
+    state: "storefront-dev Details -> SUMMARY -> SYNC POLICY, after E4's apply (before the Prune=false commit)"
+    produced_by: "lab-03 E4"
+    actions:
+      - wait_for: '.sliding-panel--opened .white-box:has-text("SYNC POLICY")'
+      - scroll: '.sliding-panel--opened .white-box:has-text("SYNC POLICY")'
+      - wait_ms: 1000
+    fidelity: full
+    highlight:
+      intent: "ENABLE AUTO-SYNC and SELF HEAL checked, PRUNE RESOURCES unchecked"
+      selector: '.sliding-panel--opened .white-box:has-text("SYNC POLICY")'
+
+  - id: SS-L3-07
+    guide: lab-03
+    filename: day-1/lab-03-07-self-heal-evidence.png
+    app: argocd
+    auth: admin
+    # Verified v3.5.2: the toolbar SYNC STATUS button opens this operation panel
+    # (deep link ?operation=true). Capture right after a self-heal revert and
+    # before the Prune=false commit, whose auto-sync would replace it.
+    route: "/applications/argocd/storefront-dev?resource=&operation=true"
+    state: "Sync Status panel after E4's second kubectl scale was reverted: INITIATED BY automated sync policy; RESULT lists only the Deployment"
+    produced_by: "lab-03 E4"
+    actions:
+      - wait_for: '.sliding-panel--opened :text("INITIATED BY")'
+      - wait_ms: 1000
+    fidelity: full
+    highlight:
+      intent: "INITIATED BY automated sync policy"
+      selector: '.sliding-panel--opened .white-box:has-text("INITIATED BY")'
+
+  - id: SS-L3-08
+    guide: lab-03
+    filename: day-1/lab-03-08-comparison-error.png
+    app: argocd
+    auth: admin
+    # Verified v3.5.2: the header's APP CONDITIONS "1 Error" item opens this
+    # panel (deep link ?conditions=true). The old plain route was captured before
+    # storefront-staging existed and showed "permission denied".
+    route: "/applications/argocd/storefront-staging?resource=&conditions=true"
+    state: "storefront-staging APP CONDITIONS panel after E5 Part A (valueFiles -> values-DOESNOTEXIST.yaml, applied, refreshed)"
+    produced_by: "lab-03 E5 part A"
+    actions:
+      - wait_for: ".sliding-panel--opened .application-conditions"
+      - wait_ms: 1500
+    fidelity: full
+    highlight:
+      intent: "ComparisonError: ... values-DOESNOTEXIST.yaml: no such file or directory"
+      selector: ".sliding-panel--opened .application-conditions"
+
+  - id: SS-L3-09
+    guide: lab-03
+    filename: day-1/lab-03-09-presync-hook-failed.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev
+    # Part B as rewritten 2026-09-13: commit only migration.shouldFail: true (app
+    # stays Synced; auto-sync does not start), then run `argocd app sync
+    # storefront-dev` explicitly. A manual sync has no retries, so it ends Failed
+    # in about 6 s. Capture after that and before the roll-forward commit.
+    state: "storefront-dev after E5 Part B's explicit sync: LAST SYNC 'Sync failed', PreSync Job red, app still Synced/Healthy"
+    produced_by: "lab-03 E5 part B"
+    fidelity: full
+    highlight:
+      intent: "failed PreSync Job (red); Sync-phase resources untouched by this operation"
+      selector: ".application-resource-tree"
+
+  - id: SS-L3-10
+    guide: lab-03
+    filename: day-1/lab-03-10-recovered.png
+    app: argocd
+    auth: admin
+    route: /applications
+    state: "Applications list after E5 recovery: storefront-dev (Auto) and storefront-staging (Manual) Synced/Healthy; storefront-dev's last sync Succeeded"
+    produced_by: "after lab-03 E5"
+    fidelity: full
+    highlight:
+      intent: "dev and staging Synced/Healthy"
+      selector: ".applications-list .argo-table-list__row"
+
+  # --- Guide 05 (ApplicationSet Alpha UI) -----------------------------------
+  - id: SS-S5-01
+    guide: "05"
+    filename: day-2/s05-01-applicationsets-list.png
+    app: argocd
+    auth: admin
+    route: /applicationsets
+    state: "ApplicationSets list (Alpha UI)"
+    produced_by: CP-lab-05
+    fidelity: full
+    caption_note: "ApplicationSet UI is Alpha since v3.5.0"
+    highlight:
+      intent: "storefront row"
+      selector: ".applicationsets-list .argo-table-list__row"
+
+  - id: SS-S5-02
+    guide: "05"
+    filename: day-2/s05-02-applicationset-tree.png
+    app: argocd
+    auth: admin
+    route: /applicationsets/storefront
+    state: "ApplicationSet detail tree (Alpha UI)"
+    produced_by: CP-lab-05
+    fidelity: full
+    caption_note: "ApplicationSet UI is Alpha since v3.5.0"
+    highlight:
+      intent: "AppSet node -> 3 generated Applications"
+      selector: ".application-resource-tree"
+
+  - id: SS-S5-03
+    guide: "05"
+    filename: day-2/s05-03-root-app-tree.png
+    app: argocd
+    auth: admin
+    route: /applications/platform-root
+    state: "platform-root tree right after reset-lab.sh CP-lab-05: root Healthy/Synced; three child Application nodes show a sync check only (no health heart)"
+    produced_by: CP-lab-05
+    fidelity: full
+    highlight:
+      intent: "root node and its three child Application nodes"
+      selector: ".application-resource-tree"
+
+  # --- Lab 04 ---------------------------------------------------------------
+  - id: SS-L4-01
+    guide: lab-04
+    filename: day-2/lab-04-01-env-check.png
+    app: argocd
+    auth: admin
+    route: /applications
+    state: "Applications list — environment check"
+    produced_by: CP-lab-04
+    fidelity: full
+    highlight:
+      intent: "no storefront Applications"
+      selector: ".applications-list"
+
+  - id: SS-L4-02
+    guide: lab-04
+    filename: day-2/lab-04-02-cluster-labels.png
+    app: argocd
+    auth: admin
+    route: /settings/clusters
+    state: "Cluster detail page for workload at CP-lab-04 (Settings -> Clusters -> workload row)"
+    produced_by: CP-lab-04
+    # v3.5.2 has no .cluster-details element. Clicking the row opens
+    # /settings/clusters/<server URL> with GENERAL (labels) and CONNECTION STATE
+    # boxes (same verified actions as SS-L2-04).
+    actions:
+      - click: '.argo-table-list__row:has-text("k3d-workload-server-0")'
+      - wait_for: ".white-box"
+      - wait_ms: 1500
+    fidelity: full
+    highlight:
+      intent: "labels cluster-role, region"
+      selector: ".white-box"
+
+  - id: SS-L4-03
+    guide: lab-04
+    filename: day-2/lab-04-03-appset-preview-diff.png
+    app: argocd
+    auth: admin
+    # Verified v3.5.2: AppSet Details panel, PREVIEW tab. EDIT turns the manifest
+    # into an editor titled "APPLICATIONSET MANIFEST (edits are not saved)";
+    # the actions clear the `cluster-role: workload` line (matchLabels becomes
+    # empty = every cluster), click the panel's PREVIEW button, and scroll to the
+    # LIVE APPS / DIFF / DESIRED APPS result. Nothing is saved to the cluster.
+    route: "/applicationsets/storefront?resource=&node=argoproj.io%2FApplicationSet%2Fargocd%2Fstorefront%2F0&tab=preview"
+    state: "E2 moment (storefront applied with the workload selector): Preview tab, selector line removed in the editor (not saved), PREVIEW clicked, DIFF sub-tab"
+    produced_by: "lab-04 E2"
+    viewport: { width: 1440, height: 1400 }
+    actions:
+      - click: '.sliding-panel--opened button:text-is("Edit")'
+      - click: '.sliding-panel--opened .view-line:has-text("cluster-role: workload")'
+      - press: "End"
+      - press: "Shift+Home"
+      - press: "Backspace"
+      - click: '.sliding-panel--opened button:text-is("Preview")'
+      - wait_for: ".sliding-panel--opened .application-resources-diff"
+      - wait_ms: 2000
+      # Center the FIRST added Application's title, so the LIVE APPS / DIFF /
+      # DESIRED APPS sub-tabs and the Compact/Inline diff checkboxes stay in view.
+      - scroll: ".sliding-panel--opened .application-resources-diff__diff__title"
+      - wait_ms: 1000
+    fidelity: full
+    caption_note: "ApplicationSet UI is Alpha since v3.5.0"
+    highlight:
+      intent: "the Applications a broadened selector would add (in-cluster)"
+      selector: ".sliding-panel--opened .application-resources-diff"
+
+  - id: SS-L4-04
+    guide: lab-04
+    filename: day-2/lab-04-04-applicationsets-list.png
+    app: argocd
+    auth: admin
+    route: /applicationsets
+    state: "ApplicationSets page after E1 apply: one storefront tile, Healthy, Applications: 3"
+    produced_by: "lab-04 E1"
+    fidelity: full
+    caption_note: "ApplicationSet UI is Alpha since v3.5.0"
+    highlight:
+      # v3.5.2 renders ApplicationSets as tiles by default; there is no
+      # .applicationsets-list element.
+      intent: "storefront tile (Applications: 3)"
+      selector: ".applications-tiles__item"
+
+  - id: SS-L4-05
+    guide: lab-04
+    filename: day-2/lab-04-05-appset-generated-tree.png
+    app: argocd
+    auth: admin
+    route: /applicationsets/storefront
+    state: "ApplicationSet detail tree"
+    produced_by: "lab-04 E1"
+    fidelity: full
+    caption_note: "ApplicationSet UI is Alpha since v3.5.0"
+    highlight:
+      intent: "three generated Applications"
+      selector: ".application-resource-tree"
+
+  - id: SS-L4-06
+    guide: lab-04
+    filename: day-2/lab-04-06-generated-apps-list.png
+    app: argocd
+    auth: admin
+    route: /applications?search=storefront
+    state: "Applications list (filtered)"
+    produced_by: "lab-04 E1"
+    fidelity: full
+    highlight:
+      intent: "storefront-*-workload"
+      selector: ".applications-list"
+
+  - id: SS-L4-07
+    guide: lab-04
+    filename: day-2/lab-04-07-appset-error-condition.png
+    app: argocd
+    auth: admin
+    route: /applicationsets/storefront
+    state: "ApplicationSet conditions panel after E5 Part A's push AND the controller's next pass (up to 3 min): ErrorOccurred / ParametersGenerated / ResourcesUpToDate citing the missing namespace key"
+    produced_by: "lab-04 E5 part A"
+    # v3.5.2 has no .applicationset-conditions element. The status panel's
+    # CONDITIONS value is a button that opens the conditions sliding panel.
+    actions:
+      - click: ".application-status-panel__item-value__status-button"
+      - wait_for: ".sliding-panel--opened .application-conditions"
+      - wait_ms: 1500
+    fidelity: full
+    caption_note: "ApplicationSet UI is Alpha since v3.5.0"
+    highlight:
+      intent: "ErrorOccurred with missing-key message"
+      selector: ".sliding-panel--opened .application-conditions"
+
+  - id: SS-L4-08
+    guide: lab-04
+    filename: day-2/lab-04-08-root-child-tree.png
+    app: argocd
+    auth: admin
+    route: /applications/platform-root
+    state: "platform-root tree"
+    produced_by: "lab-04 E4"
+    fidelity: full
+    highlight:
+      intent: "root -> three children"
+      selector: ".application-resource-tree"
+
+  - id: SS-L4-09
+    guide: lab-04
+    filename: day-2/lab-04-09-child-broken-root-fine.png
+    app: argocd
+    auth: admin
+    # Verified v3.5.2: the root's own tree shows every child node with a green
+    # Synced check even while platform-quotas has a ComparisonError, so a tree
+    # shot contradicts the caption. The Applications list shows both statuses.
+    route: "/applications?search=platform"
+    state: "Applications list searched 'platform' after E5 Part B's push: platform-root Healthy/Synced, platform-quotas Healthy/Unknown (path quotas-typo), before the wrong-layer patch and the fix"
+    produced_by: "lab-04 E5 part B"
+    fidelity: full
+    highlight:
+      intent: "platform-quotas Unknown beside platform-root Synced"
+      selector: ".applications-tiles__item"
+
+  - id: SS-L4-10
+    guide: lab-04
+    filename: day-2/lab-04-10-appset-sync-policy.png
+    app: argocd
+    auth: admin
+    # Verified v3.5.2 deep link: AppSet Details panel, MANIFEST tab (a read-only
+    # editor showing spec only). There is no .application-manifest element.
+    route: "/applicationsets/storefront?resource=&node=argoproj.io%2FApplicationSet%2Fargocd%2Fstorefront%2F0&tab=manifest"
+    state: "AppSet Details -> MANIFEST after E3's apply: spec.syncPolicy applicationsSync create-update, preserveResourcesOnDeletion true"
+    produced_by: "lab-04 E3"
+    # Taller page so the syncPolicy lines at the end of the spec are in view.
+    viewport: { width: 1440, height: 1400 }
+    actions:
+      - wait_for: ".sliding-panel--opened .monaco-editor"
+      - wait_ms: 2000
+    fidelity: full
+    caption_note: "ApplicationSet UI is Alpha since v3.5.0"
+    highlight:
+      intent: "applicationsSync: create-update, preserveResourcesOnDeletion"
+      selector: ".sliding-panel--opened .monaco-editor"
+
+  # --- Guide 06 -------------------------------------------------------------
+  - id: SS-S6-01
+    guide: "06"
+    filename: day-2/s06-01-projects-list.png
+    app: argocd
+    auth: admin
+    route: /settings/projects
+    state: "Settings, Projects"
+    produced_by: "CP-capstone (pre-fault)"
+    fidelity: full
+    highlight:
+      intent: "four projects"
+      selector: ".argo-table-list"
+
+  - id: SS-S6-02
+    guide: "06"
+    filename: day-2/s06-02-team-a-dev-view.png
+    app: argocd
+    auth: team-a-dev
+    route: /applications
+    state: "Applications list as team-a-dev"
+    produced_by: "CP-capstone (pre-fault)"
+    fidelity: full
+    highlight:
+      intent: "only permitted Applications visible"
+      selector: ".applications-list"
+
+  - id: SS-S6-03
+    guide: "06"
+    filename: day-2/s06-03-sync-window.png
+    app: argocd
+    auth: admin
+    route: /settings/projects/team-a
+    state: "Project, sync windows section"
+    produced_by: "lab-05 stretch state"
+    fidelity: panel
+    highlight:
+      intent: "deny window row"
+      selector: ".project-sync-windows"
+
+  # --- Lab 05 ---------------------------------------------------------------
+  - id: SS-L5-01
+    guide: lab-05
+    filename: day-2/lab-05-01-env-check-projects.png
+    app: argocd
+    auth: admin
+    route: /settings/projects
+    state: "Settings, Projects — environment check"
+    produced_by: CP-lab-05
+    fidelity: full
+    highlight:
+      intent: "no team-a yet"
+      selector: ".argo-table-list"
+
+  - id: SS-L5-02
+    guide: lab-05
+    filename: day-2/lab-05-02-project-team-a.png
+    app: argocd
+    auth: admin
+    route: /settings/projects/team-a
+    state: "Project team-a detail (Summary tab)"
+    produced_by: "lab-05 E1 (after kubectl apply of projects/team-a.yaml)"
+    fidelity: full
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-11): Destinations and the
+    # resource allow-lists sit below the fold at 900px, so this shot uses a
+    # taller viewport. Boxes 2/4/7 = Source repositories / Destinations /
+    # cluster + namespace resource allow/deny lists.
+    viewport:
+      height: 1900
+    highlight:
+      intent: "sources, destinations, cluster-resource list"
+      selector: ".argo-container > .white-box:nth-child(2), .argo-container > .white-box:nth-child(4), .argo-container > .white-box:nth-child(7)"
+
+  - id: SS-L5-03
+    guide: lab-05
+    filename: day-2/lab-05-03-destination-rejected.png
+    app: argocd
+    auth: admin
+    route: /applications/team-a-wrong-dest
+    state: "Application conditions panel on the wrong-destination Application"
+    produced_by: "lab-05 E3 part a (throwaway team-a-wrong-dest applied, never synced)"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-11). The real condition is
+    # InvalidSpecError "... do not match any of the allowed destinations in
+    # project 'team-a'" (NOT "is not permitted in project"). The panel opens
+    # from the APP CONDITIONS "1 Error" item; viewport shot keeps its title.
+    wait_until: load
+    actions:
+      - click: ".application-status-panel__conditions"
+      - wait_for: ".application-conditions__condition"
+      - wait_ms: 800
+    fidelity: full
+    highlight:
+      intent: "InvalidSpecError destination message naming project team-a"
+      selector: ".application-conditions__condition"
+
+  - id: SS-L5-04
+    guide: lab-05
+    filename: day-2/lab-05-04-cluster-scoped-blocked.png
+    app: argocd
+    auth: admin
+    route: /applications/team-a-clusterrole
+    state: "Last-sync operation panel for the cluster-scoped attempt"
+    produced_by: "lab-05 E3 part b (throwaway team-a-clusterrole, path attempts/cluster-scoped, after argocd app sync)"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-11). Because the workload
+    # cluster Secret is namespaced (clusterResources: "false"), the refusal is
+    # Phase Error / "ComparisonError: Failed to load live state: cluster level
+    # ClusterRole ... can not be managed when in namespaced mode" -- raised by
+    # Argo CD before any write, NOT an AppProject "not permitted" message.
+    wait_until: load
+    actions:
+      - click: '.application-status-panel__item:has-text("LAST SYNC") >> text=Sync error'
+      - wait_for: ".sliding-panel--opened .white-box__details-row"
+      - wait_ms: 800
+    fidelity: full
+    highlight:
+      intent: "Phase Error and the namespaced-mode ClusterRole message"
+      selector: ".sliding-panel--opened .white-box__details-row:nth-child(2), .sliding-panel--opened .white-box__details-row:nth-child(3)"
+
+  - id: SS-L5-05
+    guide: lab-05
+    filename: day-2/lab-05-05-argocd-rbac-denied.png
+    app: argocd
+    auth: team-a-dev
+    route: /applications/storefront-prod-workload
+    state: "storefront-prod-workload opened as team-a-dev (no get permission)"
+    produced_by: "lab-05 E4 part a (CP-lab-05 + E1 RBAC grant live)"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-11): team-a-dev cannot GET
+    # a storefront app, so there is no Sync button to press. The page shows
+    # "Failed to load data, please try again." plus an error toast "Unable to
+    # load data: permission denied". The toast auto-closes; capture quickly.
+    wait_until: load
+    actions:
+      - wait_for: ".Toastify__toast--error"
+    fidelity: full
+    highlight:
+      intent: "the permission-denied toast (page also shows Failed to load data)"
+      selector: ".Toastify__toast--error"
+
+  - id: SS-L5-06
+    guide: lab-05
+    filename: day-2/lab-05-06-kubernetes-forbidden.png
+    app: argocd
+    auth: admin
+    route: /applications/team-a-netpol
+    state: "Last-sync operation panel for the NetworkPolicy attempt"
+    produced_by: "lab-05 E4 part b (throwaway team-a-netpol, path attempts/network-policy, after sync)"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-12). Fence 3: the sync runs
+    # and then fails. Phase Failed, message "one or more objects failed to
+    # apply, reason: networkpolicies.networking.k8s.io is forbidden: User
+    # \"system:serviceaccount:argocd-access:argocd-manager\" ...". The LAST SYNC
+    # link reads "Sync failed" here (an AppProject/comparison refusal instead
+    # reads "Sync error" -- see SS-L5-04).
+    wait_until: load
+    actions:
+      - click: '.application-status-panel__item:has-text("LAST SYNC") >> text=Sync failed'
+      - wait_for: ".sliding-panel--opened .white-box__details-row"
+      - wait_ms: 800
+    fidelity: full
+    highlight:
+      intent: "Phase Failed and the Kubernetes forbidden message naming the ServiceAccount"
+      selector: ".sliding-panel--opened .white-box__details-row:nth-child(2), .sliding-panel--opened .white-box__details-row:nth-child(3)"
+
+  - id: SS-L5-07
+    guide: lab-05
+    filename: day-2/lab-05-07-delete-denied.png
+    app: argocd
+    auth: team-a-dev
+    route: /applications/team-a-guestbook
+    state: "Delete dialog + permission-denied toast, as team-a-dev"
+    produced_by: "lab-05 E5 (team-a-dev clicks DELETE on team-a-guestbook and confirms)"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-12). Because team-a-dev CAN
+    # get this app, the denial is the detailed form: "permission denied:
+    # applications, delete, team-a/team-a-guestbook, sub: team-a-dev, iat: ...".
+    # (Deleting a storefront app instead returns only "permission denied",
+    # because the get check fails first.) The dialog's propagation-policy radio
+    # buttons - Foreground / Background / Non-cascading - are the cascade point
+    # E5 part C discusses. The toast auto-closes; it is captured immediately.
+    wait_until: load
+    actions:
+      - click: "text=DELETE"
+      - wait_for: ".argo-field"
+      - fill: ".argo-field"
+        value: team-a-guestbook
+      - wait_ms: 500
+      - click: 'button:has-text("OK")'
+      - wait_for: ".Toastify__toast--error"
+      - wait_ms: 500
+    fidelity: full
+    highlight:
+      intent: "permission-denied toast naming applications, delete, team-a/team-a-guestbook"
+      selector: ".Toastify__toast--error"
+
+  # --- Guide 07 (spoiler rule: causes differ from capstone faults) ----------
+  - id: SS-S7-01
+    guide: "07"
+    filename: day-2/s07-01-repo-unreachable.png
+    app: argocd
+    auth: admin
+    route: /applications/storefront-dev-workload
+    state: "Application ComparisonError from an unreachable repo"
+    produced_by: "harness: CP-capstone, docker stop lab-gitea, argocd app get --hard-refresh (docker start lab-gitea afterward)"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-12). Three corrections to the
+    # provisional entry: (1) an Application detail page holds an event stream open
+    # so it never reaches networkidle -> wait_until: load; (2) the conditions panel
+    # only renders after clicking APP CONDITIONS in the status bar; (3) the real
+    # message is a dial/"no route to host" connection failure, NOT a DNS
+    # "could not resolve host" error, because the recipe stops the Git server
+    # rather than removing its DNS record.
+    wait_until: load
+    actions:
+      - click: ".application-status-panel__conditions"
+      - wait_for: ".application-conditions__condition"
+      - wait_ms: 800
+    fidelity: full
+    highlight:
+      intent: "ComparisonError condition message naming the unreachable Git host"
+      selector: ".application-conditions__condition"
+
+  - id: SS-S7-02
+    guide: "07"
+    filename: day-2/s07-02-sync-retrying.png
+    app: argocd
+    auth: admin
+    route: /applications/scratch-retry?operation=true
+    state: "Operation 'retrying' state"
+    produced_by: "harness: throwaway Application scratch-retry (project default, in-cluster ns s07-scratch) sourcing a failing PreSync hook Job, synced with argocd app sync --async --retry-limit 5; capture during a backoff window"
+    # Confirmed live on v3.5.2 (lab-tester, 2026-09-12): the operation-state
+    # slide-out opens from the query parameter ?operation=true, and an
+    # Application detail page never reaches networkidle -> wait_until: load.
+    # There is no `.application-operation-state` element in v3.5.2 (only
+    # `.application-operation-state__message` inside the RESULT rows); the
+    # operation summary's MESSAGE row is the single `:has(pre)` details row.
+    # Fidelity is `full` so the shot keeps the PHASE row and the RESULT table
+    # (the failed PreSync hook) alongside the retry message.
+    wait_until: load
+    fidelity: full
+    highlight:
+      intent: "retry attempt message"
+      selector: ".sliding-panel__body .white-box__details-row:has(pre)"
+
+  # --- Capstone (only SS-CAP-01/02/03 appear in the capstone guide) ---------
+  - id: SS-CAP-01
+    guide: capstone
+    filename: day-2/capstone-01-incident-start.png
+    app: argocd
+    auth: admin
+    route: /applications
+    state: "Applications list at incident start"
+    produced_by: "CP-capstone + inject all"
+    fidelity: full
+    highlight:
+      intent: "none — participants must read it themselves"
+      selector: null
+
+  - id: SS-CAP-02
+    guide: capstone
+    filename: day-2/capstone-02-restored.png
+    app: argocd
+    auth: admin
+    route: /applications
+    state: "Applications list, all Synced/Healthy"
+    produced_by: CP-capstone-restored
+    fidelity: full
+    highlight:
+      intent: "all badges"
+      selector: ".applications-list"
+
+  - id: SS-CAP-03
+    guide: capstone
+    filename: day-2/capstone-03-clusters-restored.png
+    app: argocd
+    auth: admin
+    route: /settings/clusters
+    state: "Settings, Clusters"
+    produced_by: CP-capstone-restored
+    fidelity: full
+    highlight:
+      intent: "workload Successful"
+      selector: ".argo-table-list__row"

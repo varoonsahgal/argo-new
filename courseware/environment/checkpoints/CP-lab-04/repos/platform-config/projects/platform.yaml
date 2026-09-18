@@ -1,0 +1,42 @@
+# The platform-team AppProject (present from cp-lab-04). It owns the App-of-Apps
+# root and children: it permits the argoproj.io/Application kind in the management
+# cluster's argocd namespace, and the workload destinations the children deploy to.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Platform-team project (App-of-Apps root and platform components)
+  sourceRepos:
+    - http://lab-gitea:3000/course/platform-config.git
+    - http://lab-gitea:3000/course/platform-components.git
+  destinations:
+    # The root and child Application objects themselves live in-cluster/argocd.
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    # The child components deploy to these workload namespaces.
+    - server: https://k3d-workload-server-0:6443
+      namespace: storefront-dev
+    - server: https://k3d-workload-server-0:6443
+      namespace: storefront-staging
+    - server: https://k3d-workload-server-0:6443
+      namespace: storefront-prod
+    - server: https://k3d-workload-server-0:6443
+      namespace: platform-system
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: argoproj.io
+      kind: Application
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+    - group: apps
+      kind: Deployment
+    - group: networking.k8s.io
+      kind: NetworkPolicy

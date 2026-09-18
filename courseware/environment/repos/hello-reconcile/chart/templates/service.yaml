@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-reconcile
+  labels:
+    app.kubernetes.io/name: hello-reconcile
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hello-reconcile
+  ports:
+    - name: http
+      port: 9898
+      targetPort: http
