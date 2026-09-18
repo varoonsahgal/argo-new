@@ -1,0 +1,754 @@
+> This file adds what that one predates: the mapping onto the new eight-module participant structure, the fault-family vocabulary participants now use, and the per-fault hint ladders that match their module 5.
+>
+> **Participant guide** (student repository): [capstone README](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-2/capstone/README.md) · [1 incident](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-2/capstone/01-the-incident.md) · [2 rescue guide](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-2/capstone/02-quick-rescue-guide.md) · [3 setup and rules](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-2/capstone/03-setup-and-rules.md) · [4 evidence toolbox](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-2/capstone/04-evidence-toolbox.md) · [5 fault families](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-2/capstone/05-fault-families-and-hints.md) · [6 look and sort](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-2/capstone/06-triage.md) · [7 fix, prove, learn](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-2/capstone/07-restore-verify-reflect.md) · [8 troubleshooting](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-2/capstone/08-troubleshooting-and-close.md) · [Day 2 instructor checklist](https://github.com/varoonsahgal/argo-new/blob/main/courseware/day-2/INSTRUCTOR-CHECKLIST.md)
+
+---
+
+## 0. The solution in one screen
+
+| Fault | Family (learner module 5) | Area | Injected change | Correct repair | Change path |
+|---|---|---|---|---|---|
+| **F1** | 📚 source / render | `SRC` | `image.tag` blanked in `storefront-gitops/envs/staging/values.yaml` | revert that commit | **A** (Git) |
+| **F2** | 🏭 blast radius | `GEN` | cluster selector emptied in `platform-config/applicationsets/storefront.yaml`, **and applied** | revert **and** re-apply, then delete the strays | **A + C + D** |
+| **F3** | 👥 duplicate ownership | `GEN` | `apps/team-root.yaml` + `team-root/platform-agent-dup.yaml` added to `platform-config` | revert the commit, **then** orphan-delete the two objects | **A + D** |
+| **F4** | 🚪 Kubernetes RBAC | `POL` | `argocd-deployer` RoleBinding deleted from `storefront-prod` (workload cluster) | re-apply `workload-rbac.yaml`, then sync | **C + D** |
+| **F5** | 🗝️ stale credentials | `CONN` | `argocd-manager-token` rotated on workload; mgmt cluster Secret now stale → **401**. ⚠️ **Needs the pre-flight workaround — it does not inject on its own** | re-register the cluster with the current token + CA | **C** |
+| **F6** | 🔵 workload + drift | `RUN` | prod promoted to tag `storefront-1.1.0` (bad readiness path **and** HPA `minReplicas` 5 > `replicaCount` 2) | revert the promotion commit | **A** |
+| **F7** | 🟣 platform component | `PLAT` | repo-server memory limit lowered to `32Mi` in `platform-config/argocd/values.yaml` **and patched live** → `OOMKilled` | revert the value, then re-apply Argo CD | **B** |
+
+**The masking graph — say this out loud in the debrief:**
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#000000','primaryColor':'#1a001a','primaryTextColor':'#ffffff','primaryBorderColor':'#ff2bd1','lineColor':'#ff2bd1','secondaryColor':'#2a0a2a','fontSize':'14px'}}}%%
+flowchart TD
+    F7["🟣 F7 repo-server OOM<br/>nothing renders"] -->|"masks"| F1["📚 F1 staging render"]
+    F7 -->|"masks"| F2["🏭 F2 blast radius"]
+    F7 -->|"masks"| F3["👥 F3 duplicate owner"]
+    F5["🗝️ F5 stale token · 401<br/>no live state readable"] -->|"masks"| F4["🚪 F4 missing RoleBinding"]
+    F5 -->|"masks"| F6["🔵 F6 bad prod release"]
+    F6 -->|"shares an app with"| F4
+    classDef n fill:#1a001a,stroke:#ff2bd1,stroke-width:2px,color:#ffffff;
+    classDef m fill:#3a0010,stroke:#ff2bd1,stroke-width:3px,color:#ffffff;
+    class F1,F2,F3,F4,F6 n;
+    class F5,F7 m;
+```
+
+> **The intended discovery order is F7 → F5 → everything else.** A learner who repairs F7 and F5 early sees the other five clearly. A learner who starts anywhere else will re-diagnose the same symptom two or three times — which is the lesson, provided they get there before 0:50.
+
+> ⚠️ **F4 and F6 both live on `storefront-prod-workload`.** One application, two independent faults. Expect learners to fix one and believe they are finished. This is the single most common completion error.
+
+---
+
+## 1. Running the incident
+
+### Pre-flight (before the room starts)
+
+```bash
+source ~/argo-lab-env.sh
+reset-lab.sh CP-capstone --verify-only --local     # expect 23 PASS rows
+```
+
+**Every learner must be at `CP-capstone` before injection.** A learner who starts from a broken Lab 5 will chase their own leftover mistake as if it were an injected fault. Drop `--local` on the standard learner VM image.
+
+### Inject
+
+```bash
+inject-capstone-faults.sh inject all          # order: F1 F2 F3 F6 F4 F5 F7
+inject-capstone-faults.sh verify all          # every fault must report PRESENT
+inject-capstone-faults.sh status              # which markers exist
+```
+
+Injection takes a few minutes: F5 waits for Kubernetes to mint a token, F7 waits for the doomed ReplicaSet to crash.
+
+> 🔴 **F5 will report `ABSENT`, and re-running the injector will not fix it.** Deleting and recreating a *legacy* ServiceAccount token Secret under the same name mints a **byte-identical** token, so the stored copy never goes stale. Without a workaround the class gets **six** faults, not seven.
+>
+> **Apply the tested workaround in section 0.2 of [the verified walkthrough](../../instructor/day-2/capstone-restore-platform-SOLUTION.md)** immediately after `inject all`. It deletes and recreates the ServiceAccount itself, which changes its UID and therefore the token, and it is verified not to undo F4.
+
+> 💡 **Verify before you announce the start.** Any other fault reporting `ABSENT` means one seventh of the exercise is missing — re-run `inject-capstone-faults.sh inject <Fn>` for that one.
+
+### During
+
+```bash
+capstone-check.sh --instructor     # adds the failing signal per unresolved area
+```
+
+🔴 **Never run `--instructor` on a projector or a learner's machine during the capstone.** It names the failing signal, which hands them the triage.
+
+### Reset and cleanup
+
+```bash
+inject-capstone-faults.sh revert all          # reverse order: F7 F5 F4 F6 F3 F2 F1
+inject-capstone-faults.sh verify all          # every fault should now report ABSENT
+capstone-check.sh                             # expect all six areas resolved, exit 0
+```
+
+If a learner's environment is beyond repair (for example they force-pushed, or hand-removed a finalizer):
+
+```bash
+reset-lab.sh CP-capstone --local              # rebuilds the checkpoint, DISCARDS the incident
+inject-capstone-faults.sh inject all          # re-inject if they want to continue
+```
+
+**Order matters in `revert all`,** and the scripts enforce it: F3 restores Git *before* deleting its strays (otherwise the root recreates them), and the two storefront-gitops faults revert newest-first so the recorded SHAs stack correctly.
+
+---
+
+## 2. What `capstone-check.sh` actually measures
+
+Useful when a learner insists an area is fixed and the checker disagrees.
+
+| Area | Resolved when… | Which fault it catches |
+|---|---|---|
+| argo cd platform components | `argocd-repo-server` and `argocd-server` have available replicas, and the controller StatefulSet has ready replicas | F7 |
+| workload cluster connectivity | the workload API answers **and** the `bearerToken` stored in `cluster-workload` equals the live `argocd-manager-token` | F5 |
+| application source rendering | no Application carries a `ComparisonError` condition | F1 (and F7 while it is down) |
+| application generation and ownership | no Application outside the expected eight, and no `SharedResourceWarning` | F2, F3 |
+| deployment policy (permissions) | no Application's last operation is `Failed` with a message matching `forbidden`/`denied`/`RBAC` | F4 |
+| workload runtime health | all eight expected Applications are `Synced` **and** `Healthy` | F6 (and the tail of every other fault) |
+
+> **The connectivity check compares the stored token with the live one byte for byte.** A learner who "fixes" F5 by writing a Secret by hand with the wrong token will stay unresolved with everything looking fine in the UI. Point them at `argocd cluster get workload`.
+
+---
+
+## 3. The seven faults, one at a time
+
+Each fault below is written in the order you will need it while coaching: **symptom → why it misleads → first safe command → expected evidence → owner → repair → wrong turns → verification → misconceptions → hints → reveal.**
+
+---
+
+### F1 — 📚 Blanked required value: staging stops rendering
+
+| | |
+|---|---|
+| **Intended symptom** | `storefront-staging-workload` carries a `ComparisonError`; its manifests do not render; `argocd app diff` exits `2` |
+| **Actual root cause** | A commit to `storefront-gitops` set `image.tag: ""` in `envs/staging/values.yaml`. The chart calls Helm's `required` on that value, so **staging alone** fails to render |
+| **Why the symptom misleads** | While **F7** is unrepaired, *every* app shows a comparison error, so F1 looks like part of a platform-wide failure. After F7 is fixed, F1 is the only one left — and it is suddenly obvious. Learners who look before fixing F7 will conclude "the repo-server is broken" and never open the values file |
+
+**First safe command**
+
+```bash
+argocd app get storefront-staging-workload
+```
+
+**Evidence to expect**
+
+- A `CONDITION` block of type `ComparisonError` quoting Helm's own message: *`image.tag is required (set it in envs/<env>/values.yaml)`*.
+- `git -C ~/capstone/storefront-gitops log` shows a teammate commit: **"staging: drop stale image.tag pin (values cleanup)"**.
+- `helm template storefront charts/storefront -f envs/staging/values.yaml` **fails locally too** — proving the fault is in the input, not in Argo CD.
+- Dev and prod render fine.
+
+**Owner of the problem:** whoever owns `storefront-gitops` — this is Git content, not an Argo CD problem.
+
+**Correct repair (path A)**
+
+```bash
+cd ~/capstone/storefront-gitops && git pull --ff-only
+git log -n 10 --format='%h %an %s' -- envs/
+git show <sha>
+git revert <sha>
+git push
+```
+
+Argo CD picks it up within 60 seconds, or immediately on **Refresh**.
+
+**Why tempting alternatives are wrong**
+
+| Tempting fix | Why it is wrong |
+|---|---|
+| `argocd app sync storefront-staging-workload` | There is no rendered output to sync. Worse: **if a render ever produces nothing, a sync with prune is a deletion order.** |
+| Setting `image.tag` to `latest` | Defeats the chart's deliberate guard and deploys an unpinned image to staging |
+| Editing the live Deployment's image | Uncontrolled change; self-heal reverts it; evidence destroyed |
+| Disabling the `required` call in the chart | Removes the guardrail that caught the mistake — the opposite of the lesson |
+
+**Verification**
+
+```bash
+argocd app get storefront-staging-workload --refresh    # no CONDITION block
+argocd app diff storefront-staging-workload; echo $?    # 0 or 1, never 2
+argocd app manifests storefront-staging-workload --source git | head
+```
+
+**Cleanup / reset:** `inject-capstone-faults.sh revert F1` force-restores `storefront-gitops` `main` to its recorded pre-fault SHA.
+
+**Common learner misconceptions**
+
+- *"`diff` exit 2 means no difference."* It means the comparison could not complete.
+- *"A render failure is a repo-server bug."* The repo-server is reporting a genuine failure correctly.
+- *"I should sync to fix it."* See above — this is the one that can cause real damage.
+
+**Hint sequence to give**
+
+1. *"How many apps are affected? What does that tell you about where to look?"*
+2. *"Read the condition message out loud. Whose words are those?"*
+3. *"Render it yourself with `helm template` and the same values file. Then `git log` that path."*
+
+**When to reveal:** after **0:50**, or as soon as they have fixed F7 and still cannot read the condition. This fault should take a well-prepared learner under five minutes once F7 is gone.
+
+---
+
+### F2 — 🏭 Emptied selector: the factory builds too much
+
+| | |
+|---|---|
+| **Intended symptom** | Three extra Applications named `storefront-{dev,staging,prod}-in-cluster`, red, complaining about project or destination |
+| **Actual root cause** | A commit emptied the cluster generator's label selector in `platform-config/applicationsets/storefront.yaml` **and the teammate applied the object as well.** An empty selector matches **every registered cluster**, including `in-cluster` (the management cluster) |
+| **Why the symptom misleads** | The strays' *own* error messages are about projects and destinations, which points learners at `POL` and at AppProjects. **The strays are not a permission problem — they are a generation problem.** They should not exist at all, so no permission change is the right answer |
+
+**First safe command**
+
+```bash
+argocd app list
+```
+
+Then, immediately:
+
+```bash
+kubectl --context k3d-mgmt -n argocd get applications \
+  -o custom-columns='NAME:.metadata.name,BY:.metadata.ownerReferences[0].name'
+```
+
+**Evidence to expect**
+
+- Eleven Applications instead of eight (before F3 is counted).
+- The three strays carry an `ownerReferences` entry naming the `storefront` ApplicationSet.
+- `argocd appset generate applicationsets/storefront.yaml -o wide` prints **six** rows, not three.
+- `git log -- applicationsets/` shows **"storefront appset: simplify cluster selector"**.
+- The live object and the file agree — because the teammate applied it.
+
+**Owner of the problem:** the platform team, in `platform-config/applicationsets/storefront.yaml`. **Nothing reconciles this object from Git.**
+
+**Correct repair — three parts, in this order**
+
+```bash
+# A — restore the selector in Git
+cd ~/capstone/platform-config && git pull --ff-only
+git log -n 10 -- applicationsets/ ; git show <sha>
+git revert <sha> && git push
+
+# C — apply it, because nothing reconciles an ApplicationSet from Git
+kubectl --context k3d-mgmt apply -f applicationsets/storefront.yaml
+
+# read-only confirmation before cleanup
+argocd appset generate applicationsets/storefront.yaml -o wide     # exactly 3 rows
+
+# D — remove what the factory already produced
+argocd app delete storefront-dev-in-cluster     --cascade=false
+argocd app delete storefront-staging-in-cluster --cascade=false
+argocd app delete storefront-prod-in-cluster    --cascade=false
+```
+
+**`--cascade=false` is correct here and must be justified in their log:** the strays targeted a destination their AppProject forbids, so they deployed nothing. There is no workload of theirs to remove.
+
+**Why tempting alternatives are wrong**
+
+| Tempting fix | Why it is wrong |
+|---|---|
+| Deleting the strays and stopping | The generator still matches every cluster; they come back within the ApplicationSet's reconcile interval |
+| Reverting the commit and stopping | The commit is not the live object. Until it is applied, nothing changes |
+| Widening the AppProject so the strays are legal | Solves the error message by legitimising Applications that should not exist. Off limits |
+| `argocd app delete` with cascade | Unnecessary risk. Teach the habit of the written cascade decision even when the blast radius is zero |
+
+**Verification**
+
+```bash
+argocd appset generate applicationsets/storefront.yaml -o wide     # 3 rows
+kubectl --context k3d-mgmt -n argocd get applicationset storefront \
+  -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}'   # ErrorOccurred=False
+argocd app list                                                    # no *-in-cluster rows
+```
+
+**Cleanup / reset:** `revert F2` restores Git, patches the live selector back, and orphan-deletes the three strays.
+
+**Common learner misconceptions**
+
+- *"A Git revert fixes an ApplicationSet."* It does not. This is the highest-value teaching moment of the whole capstone.
+- *"The ApplicationSet controller will clean up what it generated."* Not with `applicationsSync: create-update`, which deliberately never deletes.
+- *"The error mentions the project, so it is an AppProject fault."* The AppProject did its job perfectly — it refused an Application that should never have been generated.
+
+**Hint sequence to give**
+
+1. *"Who wrote these Applications? Is there a command that tells you?"*
+2. *"Preview the ApplicationSet. How many rows do you expect, and how many do you get?"*
+3. *"You reverted the commit — go and look at the live object. Does anything reconcile it from Git?"*
+
+**When to reveal:** after **0:55**, or immediately if they are about to widen an AppProject to silence the strays.
+
+---
+
+### F3 — 👥 A second root: two owners for one Deployment
+
+| | |
+|---|---|
+| **Intended symptom** | Two unexpected Applications — `team-root` and `platform-agent-dup` — plus a `SharedResourceWarning`, and a tracking annotation on the agent Deployment that changes between readings |
+| **Actual root cause** | A commit added `apps/team-root.yaml` (a second root, which `platform-root` therefore creates) and `team-root/platform-agent-dup.yaml` (a child pointing at **the same source and destination** as the legitimate `platform-agent`) |
+| **Why the symptom misleads** | `platform-root` itself stays 🟢 `Synced`/`Healthy` throughout — it is doing exactly what Git says. Learners reading the parent conclude the App-of-Apps tree is fine. **A healthy parent does not automatically mean every child is healthy** |
+
+**First safe command**
+
+```bash
+argocd app get platform-root -o tree
+```
+
+**Evidence to expect**
+
+- The tree shows a child `team-root` that is not in the known-good inventory.
+- `team-root` in turn owns `platform-agent-dup`.
+- `platform-agent` and `platform-agent-dup` have identical `spec.source` and `spec.destination`.
+- A `SharedResourceWarning` condition, and a `tracking-id` annotation on the agent Deployment that differs between two readings a minute apart.
+- `git log` shows **"platform: add team-root app-of-apps"**.
+
+**Owner of the problem:** the `platform-config` repository — the child Application **files** under the path `platform-root` syncs.
+
+**Correct repair — order is the lesson**
+
+```bash
+# A — remove the REASON first
+cd ~/capstone/platform-config && git pull --ff-only
+git log -n 10 --format='%h %an %s'; git show <sha> --stat
+git revert <sha> && git push
+argocd app get platform-root --refresh
+
+# D — then remove the objects, WITHOUT cascade
+argocd app delete team-root          --cascade=false
+argocd app delete platform-agent-dup --cascade=false
+```
+
+> 🔴 **The safety point of this fault.** `platform-agent-dup` shares a live Deployment with `platform-agent`. **A cascading delete removes that Deployment** — a real outage caused by the repair. Make the room say the cascade decision out loud before anyone presses enter.
+
+**Why tempting alternatives are wrong**
+
+| Tempting fix | Why it is wrong |
+|---|---|
+| Deleting the child first | `team-root` has self-heal on and recreates it within a minute. This is the "my fix reverted" moment — let them experience it once, briefly |
+| Deleting `team-root` with cascade | Prunes `platform-agent-dup`, which takes the shared Deployment with it |
+| Adding `ignoreDifferences` to silence the flapping annotation | Hides a genuine ownership conflict |
+| `kubectl delete` on the duplicate Application | Uncontrolled, and skips the finalizer that makes cascade behaviour explicit |
+
+**Verification**
+
+```bash
+argocd app list                                   # exactly 8
+argocd app get platform-root -o tree              # three children, no team-root
+kubectl --context k3d-workload -n platform-system get deploy    # the agent is still running
+kubectl --context k3d-mgmt -n argocd get applications \
+  -o custom-columns='NAME:.metadata.name,TRACKED:.metadata.annotations.argocd\.argoproj\.io/tracking-id'
+# read twice, two minutes apart: the owner must not change
+```
+
+**Cleanup / reset:** `revert F3` restores Git first, then orphan-deletes both objects, retrying until they are really gone.
+
+**Common learner misconceptions**
+
+- *"The root is healthy, so the tree is fine."*
+- *"Deleting the Application deletes only the Application."* Only with `--cascade=false`. The default takes the workload too.
+- *"Two Applications managing one resource is harmless because the content is identical."* It is a flapping owner, a shared-resource warning, and a deletion hazard.
+
+**Hint sequence to give**
+
+1. *"Count your Applications and compare with the inventory. Which ones do you not recognise?"*
+2. *"Ask who wrote each one. What is the difference between an owner reference and a tracking ID?"*
+3. *"If a root creates a child from a file, what has to change for the child to stop existing — and what happens if you delete the child first?"*
+
+**When to reveal:** after **0:55**. Reveal the **cascade danger immediately** and unprompted if anyone is typing a delete without `--cascade=false`.
+
+---
+
+### F4 — 🚪 Missing RoleBinding: the sync starts and then fails
+
+| | |
+|---|---|
+| **Intended symptom** | **Three** Applications — `storefront-prod-workload`, `platform-quotas`, `platform-netpol` — report a `ComparisonError` reading `Failed to load live state: … is forbidden: User "system:serviceaccount:argocd-access:argocd-manager" cannot get resource …` in `storefront-prod`. Three different resource kinds, one namespace |
+| **Actual root cause** | The `argocd-deployer` **RoleBinding** was deleted from `storefront-prod` on the workload cluster. The Role still exists, bound to nobody. That Role carried the **read** verbs as well, so Argo CD cannot even *look* at the namespace — which is why this arrives as a comparison failure rather than a failed sync |
+| **Why the symptom misleads** | Three ways. **(1)** While F5 is unrepaired this is invisible — *401 hides 403*: until Argo CD can authenticate, it cannot discover that it is not authorized. **(2)** It presents as a **rendering-shaped** error (`ComparisonError`), so learners chase `SRC`. **(3)** Learners see a permission error and go looking in Argo CD — AppProjects, `policy.csv` — when the refusal came from Kubernetes |
+
+**First safe command**
+
+```bash
+for a in storefront-prod-workload platform-quotas platform-netpol; do
+  echo "$a: $(kubectl --context k3d-mgmt -n argocd get application $a -o jsonpath='{.status.conditions[0].message}')"
+done
+```
+
+**Evidence to expect**
+
+- Three messages, three resource kinds (`services`, `limitranges`, `networkpolicies`), **one namespace**: `storefront-prod`.
+- The permission matrix answers **`no` for `storefront-prod`** and `yes` elsewhere — ask about **`get`**, not only `create`:
+  `kubectl --context k3d-workload auth can-i get services -n storefront-prod --as=system:serviceaccount:argocd-access:argocd-manager`
+- `kubectl --context k3d-workload -n storefront-prod get roles,rolebindings` lists the **Role only** — no RoleBinding. Compare with `storefront-dev`, which has both.
+
+> 💬 **The two questions to ask the room:** *"Three Applications, three resource kinds, one namespace — what do they share?"* then *"The Role is there. What is missing?"*
+
+**Owner of the problem:** the workload cluster's RBAC — the reviewed file `~/course/lab-files/lab-02/workload-rbac.yaml`.
+
+**Correct repair (path C)**
+
+```bash
+kubectl --context k3d-workload apply -f ~/course/lab-files/lab-02/workload-rbac.yaml | grep -v unchanged
+```
+
+The file is idempotent — in the verified run only `rolebinding.rbac.authorization.k8s.io/argocd-deployer created` appeared, and the token did not change. `platform-quotas` and `platform-netpol` returned to `Synced`/`Healthy` immediately.
+
+> 🔴 **Then rebuild the cluster cache — do not skip this if F5 was repaired first.** The cache was rebuilt during the F5 repair, while `storefront-prod` was still unreadable, and restoring the RoleBinding does **not** rebuild it. Verified consequence: prod's resource rows all stayed `Unknown`, Argo CD stopped seeing changes in that namespace, and `capstone-check.sh` later reported a **false "all resolved"**. The walkthrough's section 4.7 has the API call; afterwards confirm with `argocd app get storefront-prod-workload | sed -n '/^GROUP/,$p'` — the STATUS column must show real statuses, not `Unknown`.
+
+> ⚠️ **Do not let a learner reach for `argocd app sync storefront-prod-workload` here without reading the diff.** That application is also carrying F6's bad release, and a deliberate sync is what deploys it.
+
+**Why tempting alternatives are wrong**
+
+| Tempting fix | Why it is wrong |
+|---|---|
+| Granting `cluster-admin` to `argocd-manager` | Trades an outage for a permanent security hole. Explicitly off limits |
+| Editing the AppProject | The AppProject never refused anything. Nothing in Argo CD refused this |
+| Adding permissions to `policy.csv` | Gate 1 is about *users*, not about Argo CD's cluster identity |
+| Hand-writing a new Role with `*` verbs | Wider than the design. Re-apply the reviewed file instead |
+| `kubectl apply` of a RoleBinding typed from memory | Usually works, but is uncontrolled and undocumented. Insist on the file |
+
+**Verification**
+
+```bash
+AS=system:serviceaccount:argocd-access:argocd-manager
+kubectl --context k3d-workload auth can-i get    services         -n storefront-prod --as=$AS  # yes
+kubectl --context k3d-workload auth can-i create deployments.apps -n storefront-prod --as=$AS  # yes
+kubectl --context k3d-workload auth can-i create clusterroles.rbac.authorization.k8s.io --as=$AS  # still no
+argocd app get platform-quotas   # no CONDITION block
+argocd app get platform-netpol   # no CONDITION block
+```
+
+> ⚠️ **After F4 is repaired, `storefront-prod-workload` will still not be green — F6 is also on this application.** Expect learners to report F4 as "not fixed". Ask them: *can Argo CD read the namespace now? then what is the remaining symptom, and is it the same kind of problem?*
+
+**Cleanup / reset:** `revert F4` re-applies the saved RoleBinding, falling back to the full RBAC bundle.
+
+**Common learner misconceptions**
+
+- *"`forbidden` is an Argo CD error."* It is a Kubernetes API error, quoted by Argo CD.
+- *"A Role exists, so the permission exists."* Not without a binding.
+- *"A `ComparisonError` means a rendering problem."* Not when the message says `forbidden` and names a ServiceAccount. **The error type tells you where it surfaced; the message tells you what refused.**
+- *"401 and 403 are interchangeable."* Different systems, different repairs.
+- *"Fixing permissions makes the app healthy."* It makes Argo CD able to see and write. Health is a separate question.
+
+**Hint sequence to give**
+
+1. *"Read the message, not the error type. Whose vocabulary is `system:serviceaccount:` — Argo CD's or Kubernetes'?"*
+2. *"Three Applications are unhappy. What do they share — a repository? a project? a namespace? Then ask Kubernetes the permission question in all five namespaces, for `get` as well as `create`."*
+3. *"In the namespace that said no, what exists and what does not? Compare it with a namespace that said yes."*
+
+**When to reveal:** after **1:00**. Reveal instantly if anyone proposes `cluster-admin`.
+
+---
+
+### F5 — 🗝️ Rotated token: 401 from the whole cluster
+
+| | |
+|---|---|
+| **Intended symptom** | A sync fails with `failed to discover server resources for group version apps/v1: Unauthorized`. ⚠️ **`argocd cluster list` and the Clusters page keep reporting `Successful` throughout** |
+| **Actual root cause** | The `argocd-manager-token` Secret on the workload cluster was deleted and recreated, so Kubernetes minted a **new** token. The `cluster-workload` Secret on the management cluster still carries the old one. Every call returns **401** |
+| **Why the symptom misleads** | Three ways. **(1)** The place everyone checks — the Clusters page — says `Successful`, because the controller holds an already-authenticated watch and answers comparisons from cache. **(2)** The learner's own `kubectl` works perfectly: different identity. **(3)** There is no dramatic moment; Applications keep showing plausible statuses until something forces a *fresh* call |
+
+**First safe command**
+
+```bash
+argocd app get <a-failing-app> --show-operation | grep -E "Phase|Message"
+```
+
+**Evidence to expect**
+
+- An operation message containing **`Unauthorized`**, for example: `one or more synchronization tasks are not valid: failed to discover server resources for group version apps/v1: Unauthorized`.
+- The same word in the controller log: `kubectl --context k3d-mgmt -n argocd logs statefulset/argocd-application-controller --since=10m | grep -i unauthorized`.
+- ⚠️ **`argocd cluster list` says `Successful`.** Do not let a learner rule this fault out on that basis — and do not let them conclude the tool is broken. Use it: it is the best "a status is a measurement with a timestamp" moment in the course.
+- The `argocd-manager-token` Secret on the workload cluster is **much younger** than the `cluster-workload` Secret on mgmt — ages tell the story without printing anything secret.
+
+**Owner of the problem:** the platform team, in the cluster-registration Secret on the management cluster.
+
+**Correct repair (path C)**
+
+```bash
+cd ~/capstone/platform-config
+TOKEN="$(kubectl --context k3d-workload -n argocd-access get secret argocd-manager-token \
+          -o go-template='{{ index .data "token" | base64decode }}')"
+CA="$(kubectl --context k3d-workload -n argocd-access get secret argocd-manager-token \
+      -o jsonpath='{.data.ca\.crt}')"
+sed -e "s|<TOKEN>|${TOKEN}|" -e "s|<CA_DATA>|${CA}|" clusters/workload.secret.template.yaml \
+  | kubectl --context k3d-mgmt apply -f -
+unset TOKEN CA
+```
+
+> **Why the template and not a hand-written Secret?** The template carries the correct `server`, the five managed `namespaces`, and `clusterResources: "false"`. Re-rendering it restores the **scope** as well as the credential. This is also the only F5 repair the checker will accept, because it compares the stored token with the live one.
+
+> **Note for this delivery:** Day 1 Lab 2 performs this step with a helper script, `module2-connection-helper.py`. **That helper is not present in this repository** (see the capstone revision report). The `sed` form above is the supported capstone path and works on both macOS and Ubuntu — it edits a stream, never a file in place.
+
+**Why tempting alternatives are wrong**
+
+| Tempting fix | Why it is wrong |
+|---|---|
+| Adding RBAC on the workload cluster | 401 is authentication. No Role will ever help |
+| Re-registering with `argocd cluster add` | Would rewrite the Secret without the course's namespace scope and `clusterResources: "false"`, quietly widening Argo CD's reach |
+| Restarting the application controller | A restart is an intervention, not a diagnosis. The credential is still stale afterwards |
+| Deleting and re-creating Applications | Destroys evidence and fixes nothing |
+
+**Verification**
+
+```bash
+argocd cluster get workload      # a FRESH attemptedAt — the word Successful alone proves nothing here
+argocd app get <app> --show-operation | grep -i unauthorized   # expect nothing
+```
+
+> 🔁 **Tell the room to re-triage after this repair, and warn them the picture gets worse first.** Re-registering rebuilds the cluster cache with a fresh list call. In the verified run, **three Applications turned `Unknown`/`Missing` within a minute** — `storefront-prod-workload`, `platform-quotas`, `platform-netpol` — which is what finally reveals F4. Have them log those rows as "revealed after C*n*", not as damage they caused.
+
+**Cleanup / reset:** `revert F5` mints a token if needed and re-registers the cluster from the template. An exact byte-for-byte restore is impossible because the original token was invalidated at injection.
+
+**Common learner misconceptions**
+
+- *"My `kubectl` works, so the credential is fine."* Different identity entirely.
+- *"The Clusters page says Successful, so connectivity is fine."* **The most expensive misconception in the incident.** It is reporting the last connection it measured.
+- *"401 means the cluster is down."* The cluster is up and healthy.
+- *"I should widen the namespaces list so more works."* Nothing about scope is broken.
+
+**Hint sequence to give**
+
+1. *"Read the failure message word for word. Is that word `forbidden`, or is it `Unauthorized`?"*
+2. *"What is the difference between 401 and 403, and which system says each one?"*
+3. *"The management cluster stores a **copy** of a token that lives on the workload cluster. Compare the ages of the two Secrets. And ask why the Clusters page can still say `Successful`."*
+
+**When to reveal:** after **0:45** — this fault masks two others and a room stuck on it runs out of time. Reveal earlier if more than half the room is stuck here at 0:40.
+
+---
+
+### F6 — 🔵 Bad release: unreadiness plus a replica fight
+
+| | |
+|---|---|
+| **Intended symptom** | `storefront-prod-workload` sits `OutOfSync` with a sync error; `argocd app diff` shows a changed readiness path **and** a brand-new HPA. **The bad release is not deployed yet** — it only lands if someone syncs |
+| **Actual root cause** | A promotion commit moved `envs/prod/config.yaml` from the good tag to **`storefront-1.1.0`**. That tag's chart has (a) a readiness path that returns 404, and (b) `hpa.enabled: true` with `minReplicas: 5`, above the rendered `replicaCount: 2`. The HPA scales live replicas up; self-heal writes Git's number back; repeat |
+| **Why the symptom misleads** | Four ways. **(1)** `main` looks clean — the bad chart exists **only inside the tag**, so reading `charts/storefront/values.yaml` on `main` shows nothing wrong. **(2)** It looks like ordinary drift, so the tempting fix is a sync — which is what *causes* the outage. **(3)** F4 is on the same application, so the first repair does not turn it green. **(4)** Once deployed, the replica flapping is loud and constant, and it is not what users feel |
+
+> 🔴 **This is the fault where a "helpful" instruction does damage.** Module 8 of the participant guide tells them that an application which failed a sync for the same commit needs a deliberate sync. On this application that deploys the bad release. **Interrupt any learner who types `argocd app sync storefront-prod-workload` without having run `argocd app diff` first** — and then use it: *"read the diff before you sign it"* is the lesson.
+
+**First safe command**
+
+```bash
+argocd app diff storefront-prod-workload
+```
+
+**Evidence to expect**
+
+- `argocd app diff` shows the two halves of the bad release together: a changed readiness probe path, and an added `HorizontalPodAutoscaler` with `minReplicas` above the rendered `replicaCount`.
+- `argocd app get storefront-prod-workload` shows the target revision is the tag `storefront-1.1.0`, while dev and staging track `main`.
+- The controller log explains why nothing deployed: grep it for `skipping auto-sync` on that application.
+- **If someone has already synced it:** Pods `Running`, `0/1 READY`, low restart counts (the container is alive, it just never passes readiness), `describe pod` showing probe failures, and a replica count that moves between readings.
+- An HPA object exists in `storefront-prod` that does not exist in the other environments.
+- `git log -- envs/` shows **"prod: promote to storefront-1.1.0"**.
+- Rendering the tag in a worktree shows `readinessPath` and the HPA block differing from `main`.
+
+**Owner of the problem:** `storefront-gitops` — specifically the **promotion pin**, not the chart on `main`.
+
+**Correct repair (path A)**
+
+```bash
+cd ~/capstone/storefront-gitops && git pull --ff-only
+git log -n 10 --format='%h %an %s' -- envs/
+git show <sha>                       # confirms it moved targetRevision
+git revert <sha> && git push
+```
+
+Prod returns to the previous, known-good tag. **Leaving the bad tag in the repository is correct** — you do not rewrite release history during an incident; you stop pointing at it.
+
+**Why tempting alternatives are wrong**
+
+| Tempting fix | Why it is wrong |
+|---|---|
+| Editing `charts/storefront/values.yaml` on `main` | The deployed content comes from the tag. `main` is not what prod renders |
+| Adding `ignoreDifferences` on `spec.replicas` | Silences the loudest symptom, leaves the outage, and teaches exactly the wrong habit |
+| Disabling self-heal to stop the flapping | Hiding evidence. Off limits |
+| `kubectl scale` the Deployment | Uncontrolled; the HPA overrides it within seconds |
+| Deleting the HPA by hand | Uncontrolled, and it comes straight back from the rendered manifests |
+| Editing the readiness path live | Self-heal reverts it |
+
+**Verification**
+
+```bash
+argocd app get storefront-prod-workload --refresh             # Synced / Healthy
+kubectl --context k3d-workload -n storefront-prod get pods    # 1/1 READY
+argocd app diff storefront-prod-workload; echo $?             # quiet
+# wait ~2 minutes, run the diff again — a flapping field needs two readings
+kubectl --context k3d-workload -n storefront-prod port-forward svc/storefront 9898:9898 >/dev/null 2>&1 &
+PF_PID=$!; sleep 2; curl -s localhost:9898; echo; kill "${PF_PID}"
+```
+
+**Cleanup / reset:** `revert F6` force-restores `storefront-gitops` `main` and deletes the `storefront-1.1.0` tag.
+
+**Common learner misconceptions**
+
+- *"`main` is fine, so Git is fine."* Prod is pinned to a tag on purpose — that is the production guardrail, and here it pinned a bad release faithfully.
+- *"The replica drift is the fault."* It is a symptom of the same release, and it is not what users feel.
+- *"Argo CD is fighting itself."* Argo CD and the HPA are both writing one field, exactly as configured. Two writers, one field.
+- *"The app is Synced, so it is fine."* Synced means it matches Git. Git is wrong.
+
+**Hint sequence to give**
+
+1. *"Who is affected — the badge, or a user? Which symptom would a customer notice?"*
+2. *"What revision is this application deployed from, and is that a branch or a tag?"*
+3. *"Check the tag out into a worktree and diff its chart values against `main`. Then ask which single commit made prod point there."*
+
+**When to reveal:** after **1:00**, or immediately if anyone proposes an `ignoreDifferences` rule or switching off self-heal.
+
+---
+
+### F7 — 🟣 Starved repo-server: nothing renders
+
+| | |
+|---|---|
+| **Intended symptom** | Nearly every Application red at once, `ComparisonError` everywhere, refreshes slow or failing, the UI unhelpful |
+| **Actual root cause** | A commit lowered the repo-server's memory **limit** to `32Mi` in `platform-config/argocd/values.yaml`, and the live Deployment was patched to match. The container is `OOMKilled` during start-up and enters `CrashLoopBackOff`. With no renderer, nothing can be compared |
+| **Why the symptom misleads** | It looks like every repository broke at once, or like a Git outage. **The Argo CD UI shows nothing about Argo CD's own pods**, so a learner who never leaves the UI cannot see this fault at all. It is the largest mask in the incident |
+
+**First safe command**
+
+```bash
+kubectl --context k3d-mgmt -n argocd get pods
+```
+
+**Evidence to expect**
+
+- `argocd-repo-server` not `READY`, in `CrashLoopBackOff`, with a climbing restart count.
+- `describe pod` → `Last State: Terminated`, `Reason: OOMKilled`, `Exit Code: 137`.
+- `kubectl -n argocd logs <pod> --previous` shows the process being cut off mid-start-up.
+- `git log -- argocd/` shows **"argocd: right-size repo-server memory"**.
+- `git show <sha>` shows `repoServer.resources.limits.memory` lowered.
+
+**Owner of the problem:** the platform team, in Argo CD's own Helm values.
+
+**Correct repair (path B)**
+
+```bash
+cd ~/capstone/platform-config && git pull --ff-only
+git log -n 10 --format='%h %an %s' -- argocd/
+git show <sha>
+git revert <sha> && git push
+apply-argocd-config.sh
+```
+
+`apply-argocd-config.sh` reads `platform-config` `main` **from Gitea**, so it deploys what was pushed, not the working copy. It takes a few minutes and waits for the rollout. **Learners will be logged out** when it re-stamps the admin password — that is expected, not a fault.
+
+> **Why plain `apply-argocd-config.sh` is safe here:** at `CP-capstone` the committed `argocd/values.yaml` already contains the Lab 5 `role:team-a` RBAC grant, so re-applying from `main` preserves it. (The fault-injection scripts use an overlay-aware wrapper for their own reasons; learners do not need it.)
+
+**Why tempting alternatives are wrong**
+
+| Tempting fix | Why it is wrong |
+|---|---|
+| `kubectl delete pod` on the repo-server | It crashes again immediately, and the evidence in `Last State` is gone |
+| `kubectl edit deploy argocd-repo-server` to raise the limit | Works for about a minute of teaching value, then the next apply overwrites it. Uncontrolled, and invisible to the next engineer |
+| `kubectl rollout restart` | Same crash, fresh logs, less information |
+| Chasing the `ComparisonError`s one application at a time | They are all the same fault. This is the masking lesson in its purest form |
+| Reverting in Git and stopping | Nothing reconciles Argo CD from Git in this environment. The apply **is** the change |
+
+**Verification**
+
+```bash
+kubectl --context k3d-mgmt -n argocd get pods               # all Running and fully READY
+kubectl --context k3d-mgmt -n argocd get deploy,statefulset
+# two minutes later, run it again: RESTARTS must not have climbed
+argocd app get storefront-dev-workload --hard-refresh       # a refresh completes promptly
+```
+
+**Cleanup / reset:** `revert F7` restores Git and re-applies Argo CD with any reset-managed overlays, then waits for the rollout.
+
+**Common learner misconceptions**
+
+- *"Everything is broken, so everything is a separate fault."*
+- *"The UI would tell me if Argo CD were unhealthy."* It would not.
+- *"OOMKilled means the machine is out of memory."* It means the **container exceeded its configured limit** — a number somebody wrote down.
+- *"Restarting is a reasonable first step."* It is an intervention that destroys the evidence naming the cause.
+
+**Hint sequence to give**
+
+1. *"When everything is red at once, what do all of them share?"*
+2. *"Which component renders manifests? Where would you check whether it is healthy — and does the UI show you that?"*
+3. *"Read `Last State` and `Exit Code` in `describe pod`. Then ask where the memory limit is configured, and what has to happen for a change there to reach the cluster."*
+
+**When to reveal:** **0:40 at the latest.** A room that has not found F7 by then cannot finish, because six other faults are invisible behind it. If more than half the room is stuck at 0:35, teach it from the front as a worked example — it costs five minutes and saves the exercise.
+
+---
+
+## 4. Coaching the room
+
+### The timeline you want to see
+
+| Clock | What a room on track looks like |
+|---|---|
+| 0:00–0:10 | Everyone has clones, a log file, and a written first move. Nobody has changed anything |
+| 0:10–0:25 | Grids filling. Most learners have noticed the Application count is wrong |
+| 0:25–0:40 | F7 found and repaired. A visible "wait, half of these just went green" moment |
+| 0:40–0:55 | F5 found and repaired; re-triage reveals F4 and F6 |
+| 0:55–1:10 | F1, F2, F3 fall quickly once rendering works |
+| 1:10–1:15 | F4 and F6 on `storefront-prod-workload`, both |
+| 1:15–1:20 | `capstone-check.sh`, predicted first |
+| 1:20–1:30 | Reflection blocks, started earlier, finished now |
+
+### Signals a learner is stuck in a way worth interrupting
+
+| What you see | What to say |
+|---|---|
+| Clicking between tiles in the UI for more than 3 minutes | *"What question are you answering? Which command answers it?"* |
+| Diagnosing `ComparisonError` on a fourth application | *"Those four share something. What?"* |
+| Proving the workload cluster is up, repeatedly | *"Whose credential does that command use? Whose does Argo CD use?"* |
+| About to type `argocd app delete` with no flag | 🔴 **Interrupt.** *"What does that remove? Say it out loud first."* |
+| Typing `kubectl edit` on anything | 🔴 **Interrupt.** *"Which of the four paths is that?"* |
+| Proposing `cluster-admin`, a wider AppProject, or disabling self-heal | 🔴 **Interrupt.** *"Is that restoring a guardrail, or widening one?"* |
+| Silent and behind at 0:50 | Give them F7's answer outright and let them catch up. Learning the method matters more than finding fault seven |
+
+### How much to reveal, and when
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#000000','primaryColor':'#1a001a','primaryTextColor':'#ffffff','primaryBorderColor':'#ff2bd1','lineColor':'#ff2bd1','secondaryColor':'#2a0a2a','fontSize':'14px'}}}%%
+flowchart LR
+    A["stuck < 10 min"] --> H1["ask the question<br/>their grid is missing"]
+    B["stuck 10-15 min"] --> H2["name the AREA,<br/>not the fault"]
+    C["stuck > 15 min<br/>or blocked by a mask"] --> H3["point at the exact<br/>command in module 4"]
+    D["past 1:00, or the<br/>fault blocks the rest"] --> H4["give the answer;<br/>protect the reflection time"]
+    classDef n fill:#1a001a,stroke:#ff2bd1,stroke-width:2px,color:#ffffff;
+    classDef r fill:#0a2a1a,stroke:#ff2bd1,stroke-width:3px,color:#ffffff;
+    class A,B,C,H1,H2,H3 n;
+    class D,H4 r;
+```
+
+> **The capstone's purpose is the method, not the score.** A learner who repairs four faults with clean evidence, honest logs, and a good reflection has passed. A learner who reaches green by widening a guardrail has not.
+
+### Grading against the bars
+
+| Bar | Requirement |
+|---|---|
+| **Minimum** | seven faults named with an evidence-backed area; ≥ 5 with a verified repair in the change log; seven reflection blocks completed |
+| **Full** | minimum, plus `capstone-check.sh` exits `0`, the inventory is exactly eight and green, it holds on a second reading, every change went through one of the four paths, and no guardrail is wider than its design |
+
+**Check this last point explicitly in the debrief:**
+
+```bash
+kubectl --context k3d-workload auth can-i create clusterroles.rbac.authorization.k8s.io \
+  --as=system:serviceaccount:argocd-access:argocd-manager       # must still be: no
+argocd proj get team-a                                          # unchanged from Lab 5
+kubectl --context k3d-mgmt -n argocd get cm argocd-rbac-cm -o yaml | grep -A5 policy.csv
+```
+
+---
+
+## 5. Debrief script (10 minutes)
+
+1. **Show the masking graph** (section 0) and ask who found F7 first, and what happened to their grid when they fixed it.
+2. **Ask who diagnosed the same symptom twice.** Everyone will have. Name it as the expected outcome of a masked incident, not a mistake.
+3. **Ask about `storefront-prod-workload`** — who declared it fixed after one repair? Two faults, one application.
+4. **Ask for one guardrail** per fault family from around the room, and separate them into *blocks* versus *tells you sooner*.
+5. **Close on the through-line:** Day 1 asked *does it match Git?* and *is it working?* Every fault today failed one of those, or broke something underneath both so that neither could be answered honestly.
+
+---
+
+## 6. File and command reference
+
+| Thing | Where |
+|---|---|
+| Fault units | `courseware/environment/scripts/capstone/faults/F{1..7}/{inject,verify,revert}.sh` |
+| Shared fault helpers | `courseware/environment/scripts/capstone/faults/lib.sh` |
+| Orchestrator | `courseware/environment/scripts/inject-capstone-faults.sh` |
+| Learner-facing checker | `courseware/environment/scripts/capstone-check.sh` (`--instructor` for diagnostics) |
+| Reset | `courseware/environment/scripts/reset-lab.sh CP-capstone` |
+| Workload RBAC (F4's repair file) | `~/course/lab-files/lab-02/workload-rbac.yaml` |
+| Cluster Secret template (F5's repair file) | `platform-config/clusters/workload.secret.template.yaml` |
+| Injection order | `F1 F2 F3 F6 F4 F5 F7` (revert is the reverse) |
